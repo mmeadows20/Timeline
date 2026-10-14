@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import DateField from '../components/DateField';
 import PhotoView from '../components/PhotoView';
+import ClipVideo from '../components/ClipVideo';
 import { pickClipFromGallery } from '../services/imagePicker';
 import { saveEvent } from '../services/eventService';
 import { describeCapture } from '../services/clipTime';
@@ -19,6 +20,7 @@ import { useTheme } from '../themeContext';
 
 const STREAMS = [
   { id: 'tapo', label: 'Tapo camera' },
+  { id: 'usb', label: 'USB camera' },
   { id: 'screen', label: 'Screen recording' },
   { id: 'other', label: 'Other' },
 ];
@@ -178,7 +180,7 @@ export default function AddGalleryClipScreen({ navigation, route }) {
           {file.kind === 'image' && file.uri ? (
             <PhotoView uri={file.uri} style={styles.thumb} resizeMode="cover" />
           ) : (
-            <Text style={styles.video}>Video · {file.filename || 'gallery file'}</Text>
+            <ClipVideo uri={file.uri} />
           )}
           {file.capturedAt && !file.override ? (
             <View>

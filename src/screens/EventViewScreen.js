@@ -20,6 +20,7 @@ import { copyTextToClipboard } from '../services/shareService';
 import { normalizeSocialUrl } from '../services/socialService';
 import { formatFullDate, getDateFormat, DATE_FORMAT_DMY } from '../services/dateFormat';
 import PhotoView from '../components/PhotoView';
+import ClipVideo from '../components/ClipVideo';
 import { asImageUri } from '../services/imagePicker';
 import { useTheme } from '../themeContext';
 import { eventsByIds, linkEventGroup, unlinkEvents, eventKindLabel } from '../services/eventLinkService';
@@ -170,6 +171,10 @@ export default function EventViewScreen({ navigation, route }) {
           {event.clipStreamLabel || 'Gallery file'}
           {event.clipKind === 'video' ? ' · video on this device' : ''}
         </Text>
+      ) : null}
+
+      {event.source === 'clip' && event.videoUri ? (
+        <ClipVideo uri={asImageUri(event.videoUri)} />
       ) : null}
 
       {photo ? (
