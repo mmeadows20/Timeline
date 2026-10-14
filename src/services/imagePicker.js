@@ -1,3 +1,10 @@
+import {
+  dateFromExifObject,
+  dateFromFileName,
+  dateFromImageBytes,
+  dateFromVideoBytes,
+  describeCapture,
+} from './clipTime';
 import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -592,20 +599,112 @@ export async function pickWashFromSource(source) {
 }
 
 /** Gallery photo or video for a timeline clip. Phone copies videos into the app folder. */
-export async function pickClipFromGallery() {
-  const picked = await pickWashFromGallery();
-  if (!picked || picked.kind !== 'video' || Platform.OS === 'web') return picked;
+function bytesFromBase64(text) {
+  const raw = String(text || '').replace(/^data:[^,]*,/, '');
+  if (typeof globalThis.atob === 'function') {
+    const bin = globalThis.atob(raw);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  return Uint8Array.from(Buffer.from(raw, 'base64'));
+}
+
+async function readFileHead(uri, maxBytes) {
+  if (!uri || String(uri).startsWith('data:')) return null;
   try {
+    if (Platform.OS === 'web') {
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      const slice = blob.slice(0, maxBytes);
+      return new Uint8Array(await slice.arrayBuffer());
+    }
     const FileSystem = require('expo-file-system/legacy');
-    const dirUri = FileSystem.documentDirectory + 'timeline-clips/';
-    const info = await FileSystem.getInfoAsync(dirUri);
-    if (!info.exists) await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
-    const safe = String(picked.filename || 'clip.mp4').replace(/[^\w.\-]+/g, '_');
-    const dest = `${dirUri}${Date.now()}-${safe}`;
-    await FileSystem.copyAsync({ from: picked.uri, to: dest });
-    return { ...picked, uri: dest };
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info?.size && info.size > 400 * 1024 * 1024) return null;
+    const b64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: 0,
+      length: maxBytes,
+    });
+    const bytes = bytesFromBase64(b64);
+    return bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
   } catch (e) {
-    console.warn('pickClipFromGallery: video copy failed', e);
-    return picked;
+    console.warn('readFileHead failed', e);
+    return null;
+  }
+}
+
+async function captureInstant(asset, kind, filename) {
+  const fromExif = dateFromExifObject(asset?.exif);
+  if (fromExif) return { capturedAt: fromExif.toISOString(), capturedFrom: 'exif' };
+  let skipBytes = false;
+  if (kind === 'video' && Platform.OS !== 'web' && asset?.uri) {
+    try {
+      const FileSystem = require('expo-file-system/legacy');
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      if (info?.size > 12 * 1024 * 1024) skipBytes = true;
+    } catch (_) {}
+  }
+  const bytes = skipBytes
+    ? null
+    : await readFileHead(asset?.uri, kind === 'video' ? 2 * 1024 * 1024 : 512 * 1024);
+  const fromBytes = kind === 'video' ? dateFromVideoBytes(bytes) : dateFromImageBytes(bytes);
+  if (fromBytes) return { capturedAt: fromBytes.toISOString(), capturedFrom: kind === 'video' ? 'video' : 'exif' };
+  const fromName = dateFromFileName(filename);
+  if (fromName) return { capturedAt: fromName.toISOString(), capturedFrom: 'name' };
+  return { capturedAt: '', capturedFrom: '' };
+}
+
+export async function pickClipFromGallery() {
+  try {
+    if (Platform.OS !== 'web') {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        tell('Photos permission', 'Permission to access photos and videos is needed.');
+        return null;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      allowsEditing: false,
+      quality: JPEG_QUALITY,
+      exif: true,
+      base64: false,
+    });
+    if (result.canceled || !result.assets || !result.assets[0]) return null;
+    const asset = result.assets[0];
+    const filename = asset.fileName || asset.filename || '';
+    const kind = isVideoPicked(asset) ? 'video' : 'image';
+    const when = await captureInstant(asset, kind, filename);
+    const stored = await persistWashAsset(asset);
+    if (!stored?.uri) return null;
+    let uri = stored.uri;
+    if (kind === 'video' && Platform.OS !== 'web') {
+      try {
+        const FileSystem = require('expo-file-system/legacy');
+        const dirUri = FileSystem.documentDirectory + 'timeline-clips/';
+        const info = await FileSystem.getInfoAsync(dirUri);
+        if (!info.exists) await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+        const safe = String(stored.filename || filename || 'clip.mp4').replace(/[^\w.\-]+/g, '_');
+        const dest = `${dirUri}${Date.now()}-${safe}`;
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        uri = dest;
+      } catch (e) {
+        console.warn('pickClipFromGallery: video copy failed', e);
+      }
+    }
+    return {
+      ...stored,
+      uri,
+      filename: stored.filename || filename,
+      kind,
+      capturedAt: when.capturedAt,
+      capturedFrom: when.capturedFrom,
+      capturedLabel: describeCapture(when.capturedFrom),
+    };
+  } catch (e) {
+    tell('Could not open gallery', e && e.message ? e.message : 'Please try again.');
+    return null;
   }
 }

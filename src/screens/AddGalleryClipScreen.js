@@ -14,6 +14,7 @@ import DateField from '../components/DateField';
 import PhotoView from '../components/PhotoView';
 import { pickClipFromGallery } from '../services/imagePicker';
 import { saveEvent } from '../services/eventService';
+import { describeCapture } from '../services/clipTime';
 import { useTheme } from '../themeContext';
 
 const STREAMS = [
@@ -27,6 +28,21 @@ function todayIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function formatStamp(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function fileWhen(file) {
+  if (file.capturedAt && !file.override) return new Date(file.capturedAt);
+  const hh = Math.min(23, parseInt(file.hour, 10) || 0);
+  const mm = Math.min(59, parseInt(file.minute, 10) || 0);
+  const [y, m, d] = String(file.date || '').split('-').map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return null;
+  const when = new Date(y, m - 1, d, hh, mm, 0, 0);
+  return Number.isNaN(when.getTime()) ? null : when;
+}
 function pad2(value) {
   const n = Math.max(0, parseInt(String(value || '0'), 10) || 0);
   return String(n).padStart(2, '0');
@@ -47,19 +63,12 @@ export default function AddGalleryClipScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const existing = route.params?.event || null;
-  const [date, setDate] = useState(existing?.date ? String(existing.date).slice(0, 10) : todayIso());
-  const [hour, setHour] = useState(() => {
-    const d = existing?.date ? new Date(existing.date) : new Date();
-    return Number.isNaN(d.getTime()) ? '12' : pad2(d.getHours());
-  });
-  const [minute, setMinute] = useState(() => {
-    const d = existing?.date ? new Date(existing.date) : new Date();
-    return Number.isNaN(d.getTime()) ? '00' : pad2(d.getMinutes());
-  });
   const [note, setNote] = useState(existing?.description || '');
   const [files, setFiles] = useState(() => {
     if (!existing) return [];
     const video = !!existing.videoUri && !existing.imageUri;
+    const when = existing.date ? new Date(existing.date) : null;
+    const known = when && !Number.isNaN(when.getTime());
     return [
       {
         id: existing.id,
@@ -68,6 +77,13 @@ export default function AddGalleryClipScreen({ navigation, route }) {
         kind: existing.clipKind || (video ? 'video' : 'image'),
         stream: existing.clipStream || 'tapo',
         otherName: existing.clipStream === 'other' ? existing.clipStreamLabel || '' : '',
+        capturedAt: known ? when.toISOString() : '',
+        capturedFrom: existing.clipTimeSource || (known ? 'exif' : ''),
+        capturedLabel: describeCapture(existing.clipTimeSource || (known ? 'exif' : '')),
+        override: false,
+        date: known ? String(existing.date).slice(0, 10) : todayIso(),
+        hour: known ? pad2(when.getHours()) : '12',
+        minute: known ? pad2(when.getMinutes()) : '00',
       },
     ];
   });
@@ -85,6 +101,13 @@ export default function AddGalleryClipScreen({ navigation, route }) {
         kind: picked.kind === 'video' ? 'video' : 'image',
         stream: 'tapo',
         otherName: '',
+        capturedAt: picked.capturedAt || '',
+        capturedFrom: picked.capturedFrom || '',
+        capturedLabel: picked.capturedLabel || '',
+        override: !picked.capturedAt,
+        date: picked.capturedAt ? String(picked.capturedAt).slice(0, 10) : todayIso(),
+        hour: '12',
+        minute: '00',
       },
     ]);
   };
@@ -94,17 +117,15 @@ export default function AddGalleryClipScreen({ navigation, route }) {
       Alert.alert('Choose a file', 'Add at least one photo or video from the gallery.');
       return;
     }
-    const hh = Math.min(23, parseInt(hour, 10) || 0);
-    const mm = Math.min(59, parseInt(minute, 10) || 0);
-    const [y, m, d] = String(date || todayIso()).split('-').map((n) => parseInt(n, 10));
-    const when = new Date(y, (m || 1) - 1, d || 1, hh, mm, 0, 0);
-    if (Number.isNaN(when.getTime())) {
-      Alert.alert('Check the date', 'That date or time could not be read.');
+    const missing = files.find((file) => !fileWhen(file));
+    if (missing) {
+      Alert.alert('Missing recording time', 'One file has no time written in it. Set that file’s time, or remove it.');
       return;
     }
     setSaving(true);
     try {
       for (const file of files) {
+        const when = fileWhen(file);
         const label = streamLabel(file.stream, file.otherName);
         const payload = {
           title: clipTitle(file),
@@ -116,6 +137,7 @@ export default function AddGalleryClipScreen({ navigation, route }) {
           clipStreamLabel: label,
           clipFileName: file.filename || '',
           clipKind: file.kind,
+          clipTimeSource: file.override ? 'manual' : file.capturedFrom || 'manual',
           imageUri: file.kind === 'image' ? file.uri : undefined,
           videoUri: file.kind === 'video' ? file.uri : undefined,
         };
@@ -133,31 +155,8 @@ export default function AddGalleryClipScreen({ navigation, route }) {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.intro}>
-        Put gallery files on the timeline at the time they belong to. Several files can share that time if they come from different streams.
+        Each file is placed at the time written in the recording. A Tapo clip and a screen recording from the same minute stay separate because the stream is different.
       </Text>
-      <Text style={styles.label}>When this happened</Text>
-      <DateField value={date} onChange={setDate} />
-      <View style={styles.timeRow}>
-        <TextInput
-          style={styles.time}
-          value={hour}
-          onChangeText={(t) => setHour(t.replace(/[^\d]/g, '').slice(0, 2))}
-          keyboardType="number-pad"
-          maxLength={2}
-          placeholder="HH"
-          placeholderTextColor={colors.faint}
-        />
-        <Text style={styles.colon}>:</Text>
-        <TextInput
-          style={styles.time}
-          value={minute}
-          onChangeText={(t) => setMinute(t.replace(/[^\d]/g, '').slice(0, 2))}
-          keyboardType="number-pad"
-          maxLength={2}
-          placeholder="MM"
-          placeholderTextColor={colors.faint}
-        />
-      </View>
       <TextInput
         style={styles.note}
         placeholder="Note, optional"
@@ -180,6 +179,59 @@ export default function AddGalleryClipScreen({ navigation, route }) {
             <PhotoView uri={file.uri} style={styles.thumb} resizeMode="cover" />
           ) : (
             <Text style={styles.video}>Video · {file.filename || 'gallery file'}</Text>
+          )}
+          {file.capturedAt && !file.override ? (
+            <View>
+              <Text style={styles.when}>{formatStamp(file.capturedAt)}</Text>
+              <Text style={styles.hint}>{file.capturedLabel || 'Time written in the file'}</Text>
+            </View>
+          ) : (
+            <View>
+              <Text style={styles.hint}>
+                {file.capturedAt
+                  ? 'Using a time you set, instead of the time in the file.'
+                  : 'No recording time was found in this file. Set it for this file only.'}
+              </Text>
+              <DateField
+                value={file.date}
+                onChange={(value) =>
+                  setFiles((list) => list.map((row) => (row.id === file.id ? { ...row, date: value, override: true } : row)))
+                }
+              />
+              <View style={styles.timeRow}>
+                <TextInput
+                  style={styles.time}
+                  value={file.hour}
+                  onChangeText={(t) =>
+                    setFiles((list) =>
+                      list.map((row) =>
+                        row.id === file.id ? { ...row, hour: t.replace(/[^\d]/g, '').slice(0, 2), override: true } : row,
+                      ),
+                    )
+                  }
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  placeholder="HH"
+                  placeholderTextColor={colors.faint}
+                />
+                <Text style={styles.colon}>:</Text>
+                <TextInput
+                  style={styles.time}
+                  value={file.minute}
+                  onChangeText={(t) =>
+                    setFiles((list) =>
+                      list.map((row) =>
+                        row.id === file.id ? { ...row, minute: t.replace(/[^\d]/g, '').slice(0, 2), override: true } : row,
+                      ),
+                    )
+                  }
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  placeholder="MM"
+                  placeholderTextColor={colors.faint}
+                />
+              </View>
+            </View>
           )}
           <View style={styles.chips}>
             {STREAMS.map((stream) => {
@@ -260,6 +312,7 @@ function screenStyles(c) {
     },
     addText: { color: c.blue, fontWeight: '700' },
     hint: { color: c.faint, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 12 },
+    when: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 8 },
     card: {
       backgroundColor: c.card,
       borderColor: c.cardBorder,
