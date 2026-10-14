@@ -610,13 +610,14 @@ function bytesFromBase64(text) {
   return Uint8Array.from(Buffer.from(raw, 'base64'));
 }
 
-async function readFileHead(uri, maxBytes) {
+async function readFilePart(uri, start, length) {
   if (!uri || String(uri).startsWith('data:')) return null;
   try {
     if (Platform.OS === 'web') {
       const res = await fetch(uri);
       const blob = await res.blob();
-      const slice = blob.slice(0, maxBytes);
+      const from = Math.max(0, Math.min(start || 0, blob.size));
+      const slice = blob.slice(from, from + length);
       return new Uint8Array(await slice.arrayBuffer());
     }
     const FileSystem = require('expo-file-system/legacy');
@@ -624,35 +625,71 @@ async function readFileHead(uri, maxBytes) {
     if (info?.size && info.size > 400 * 1024 * 1024) return null;
     const b64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
-      position: 0,
-      length: maxBytes,
+      position: Math.max(0, start || 0),
+      length,
     });
-    const bytes = bytesFromBase64(b64);
-    return bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
+    let bytes = bytesFromBase64(b64);
+    if (bytes.length > length + 64) {
+      bytes = start > 0 ? bytes.subarray(Math.max(0, bytes.length - length)) : bytes.subarray(0, length);
+    }
+    return bytes;
   } catch (e) {
-    console.warn('readFileHead failed', e);
+    console.warn('readFilePart failed', e);
     return null;
   }
+}
+
+function nameFromUri(uri) {
+  try {
+    const path = decodeURIComponent(String(uri || '').split('?')[0]);
+    const base = path.split('/').pop() || '';
+    if (!base || base.length > 180) return '';
+    if (/^blob:/i.test(base) || /^content:/i.test(String(uri || ''))) return '';
+    return base;
+  } catch (_) {
+    return '';
+  }
+}
+
+function clipName(asset, filename) {
+  const given = String(filename || asset?.fileName || asset?.filename || asset?.name || '').trim();
+  const fromUri = nameFromUri(asset?.uri);
+  return [given, fromUri].filter(Boolean).join(' ');
 }
 
 async function captureInstant(asset, kind, filename) {
   const fromExif = dateFromExifObject(asset?.exif);
   if (fromExif) return { capturedAt: fromExif.toISOString(), capturedFrom: 'exif' };
-  let skipBytes = false;
-  if (kind === 'video' && Platform.OS !== 'web' && asset?.uri) {
+  const lookAt = kind === 'video' ? 2 * 1024 * 1024 : 1024 * 1024;
+  const head = await readFilePart(asset?.uri, 0, lookAt);
+  let tail = null;
+  if (kind === 'video' && asset?.uri) {
     try {
-      const FileSystem = require('expo-file-system/legacy');
-      const info = await FileSystem.getInfoAsync(asset.uri);
-      if (info?.size > 12 * 1024 * 1024) skipBytes = true;
-    } catch (_) {}
+      let size = 0;
+      if (Platform.OS === 'web') {
+        const blob = await (await fetch(asset.uri)).blob();
+        size = blob.size || 0;
+      } else {
+        const FileSystem = require('expo-file-system/legacy');
+        const info = await FileSystem.getInfoAsync(asset.uri);
+        size = info?.size || 0;
+      }
+      if (size > lookAt) tail = await readFilePart(asset.uri, Math.max(0, size - lookAt), lookAt);
+    } catch (e) {
+      console.warn('clip tail read failed', e);
+    }
   }
-  const bytes = skipBytes
-    ? null
-    : await readFileHead(asset?.uri, kind === 'video' ? 2 * 1024 * 1024 : 512 * 1024);
-  const fromBytes = kind === 'video' ? dateFromVideoBytes(bytes) : dateFromImageBytes(bytes);
+  const fromBytes = kind === 'video'
+    ? dateFromVideoBytes(head) || dateFromVideoBytes(tail) || dateFromImageBytes(head) || dateFromImageBytes(tail)
+    : dateFromImageBytes(head) || dateFromImageBytes(tail);
   if (fromBytes) return { capturedAt: fromBytes.toISOString(), capturedFrom: kind === 'video' ? 'video' : 'exif' };
-  const fromName = dateFromFileName(filename);
-  if (fromName) return { capturedAt: fromName.toISOString(), capturedFrom: 'name' };
+  const names = clipName(asset, filename);
+  const fromName = dateFromFileName(names);
+  if (fromName) {
+    const clock = /(\d{4})[-_. ]?\d{2}[-_. ]?\d{2}[^\d]{0,6}\d{2}[-_.: ]?\d{2}/.test(names)
+      || /(?:^|[^\d])\d{2}[-_. ]\d{2}[-_. ]\d{4}[^\d]{0,6}\d{2}[-_.: ]\d{2}/.test(names);
+    return { capturedAt: fromName.toISOString(), capturedFrom: clock ? 'name' : 'name-date' };
+  }
   return { capturedAt: '', capturedFrom: '' };
 }
 
@@ -674,7 +711,7 @@ export async function pickClipFromGallery() {
     });
     if (result.canceled || !result.assets || !result.assets[0]) return null;
     const asset = result.assets[0];
-    const filename = asset.fileName || asset.filename || '';
+    const filename = String(asset.fileName || asset.filename || asset.name || '').trim();
     const kind = isVideoPicked(asset) ? 'video' : 'image';
     const when = await captureInstant(asset, kind, filename);
     const stored = await persistWashAsset(asset);

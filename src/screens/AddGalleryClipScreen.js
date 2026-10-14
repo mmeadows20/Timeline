@@ -190,7 +190,7 @@ export default function AddGalleryClipScreen({ navigation, route }) {
               <Text style={styles.hint}>
                 {file.capturedAt
                   ? 'Using a time you set, instead of the time in the file.'
-                  : 'No recording time was found in this file. Set it for this file only.'}
+                  : `No recording time was found${file.filename ? ` in “${file.filename}”` : ''}. Set it for this file only.`}
               </Text>
               <DateField
                 value={file.date}
@@ -233,6 +233,7 @@ export default function AddGalleryClipScreen({ navigation, route }) {
               </View>
             </View>
           )}
+          {file.filename ? <Text style={styles.hint}>{file.filename}</Text> : null}
           <View style={styles.chips}>
             {STREAMS.map((stream) => {
               const on = file.stream === stream.id;
