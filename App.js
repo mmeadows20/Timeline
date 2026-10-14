@@ -69,6 +69,7 @@ import WelcomeScreen from './src/screens/WelcomeScreen';
 import ChooseUsernameScreen from './src/screens/ChooseUsernameScreen';
 import AddLocationScreen from './src/screens/AddLocationScreen';
 import AddLifeEventScreen from './src/screens/AddLifeEventScreen';
+import AddGalleryClipScreen from './src/screens/AddGalleryClipScreen';
 import TodoListScreen from './src/screens/TodoListScreen';
 import { welcomePendingKey, WELCOME_NEXT_KEY } from './src/legal/welcomeEmail';
 import { ThemeProvider, useTheme } from './src/themeContext';
@@ -612,6 +613,14 @@ function AppShell() {
                 component={AddLifeEventScreen}
                 options={({ route }) => ({
                   title: route.params?.event ? 'Edit life event' : 'Life events',
+                })}
+              />
+
+              <Stack.Screen
+                name="AddGalleryClip"
+                component={AddGalleryClipScreen}
+                options={({ route }) => ({
+                  title: route.params?.event ? 'Edit gallery file' : 'Gallery file',
                 })}
               />
 

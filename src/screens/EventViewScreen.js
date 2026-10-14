@@ -37,6 +37,7 @@ export function openEventEditor(navigation, item) {
   else if (item.source === 'call') navigation.navigate('AddCall', { event: item });
   else if (item.source === 'location') navigation.navigate('AddLocation', { event: item });
   else if (item.source === 'life') navigation.navigate('AddLifeEvent', { event: item });
+  else if (item.source === 'clip') navigation.navigate('AddGalleryClip', { event: item });
   else if (item.hobbyType === 'poetry' || item.source === 'poem') navigation.navigate('AddPoem', { event: item });
   else if (item.hobbyType === 'singing' || item.hobbyType === 'music') navigation.navigate('AddSinging', { event: item });
   else if (item.source === 'qr') navigation.navigate('AddQr', { event: item });
@@ -163,6 +164,12 @@ export default function EventViewScreen({ navigation, route }) {
       <Text style={styles.when}>{formatWhen(event.date, dateFormat)}</Text>
       {event.source === 'todo' || event.fromTodo ? (
         <Text style={styles.meta}>Started on the to-do list</Text>
+      ) : null}
+      {event.source === 'clip' ? (
+        <Text style={styles.meta}>
+          {event.clipStreamLabel || 'Gallery file'}
+          {event.clipKind === 'video' ? ' · video on this device' : ''}
+        </Text>
       ) : null}
 
       {photo ? (

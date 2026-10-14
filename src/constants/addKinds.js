@@ -18,5 +18,6 @@ export const ADD_KINDS = [
   { id: 'wash', label: 'Wash load', blurb: 'Laundry on the household central axis', screen: 'AddWashLoad', needsWash: true },
   { id: 'location', label: 'Location', blurb: 'Home, internet, or a named place', screen: 'AddLocation' },
   { id: 'life', label: 'Life event', blurb: 'Birthday, house move, wedding…', screen: 'AddLifeEvent' },
+  { id: 'clip', label: 'Gallery file', blurb: 'Tapo, screen recording, or another stream', screen: 'AddGalleryClip' },
   { id: 'openBanking', label: 'Open Banking', blurb: 'Sandbox bank import (live later)', screen: 'OpenBanking' },
 ];

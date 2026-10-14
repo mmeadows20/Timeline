@@ -928,6 +928,7 @@ export const YEAR_BUBBLE_KIND_COLORS = {
   location: '#2dd4bf',
   life: '#e879f9',
   todo: '#a78bfa',
+  clip: '#fb923c',
 };
 
 const YEAR_BUBBLE_KIND_ORDER = [
@@ -949,6 +950,7 @@ const YEAR_BUBBLE_KIND_ORDER = [
   'location',
   'life',
   'todo',
+  'clip',
 ];
 
 /**
@@ -966,6 +968,14 @@ export function classifyYearBubbleKind(event) {
       label: 'To do',
       color: YEAR_BUBBLE_KIND_COLORS.todo,
       filter: { source: 'todo' },
+    };
+  }
+  if (source === 'clip') {
+    return {
+      kind: 'clip',
+      label: 'Clips',
+      color: YEAR_BUBBLE_KIND_COLORS.clip,
+      filter: { source: 'clip' },
     };
   }
   const hasQr =

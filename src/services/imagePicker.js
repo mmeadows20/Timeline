@@ -590,3 +590,22 @@ export async function pickWashFromSource(source) {
   if (source === 'file') return pickWashFromFile();
   return null;
 }
+
+/** Gallery photo or video for a timeline clip. Phone copies videos into the app folder. */
+export async function pickClipFromGallery() {
+  const picked = await pickWashFromGallery();
+  if (!picked || picked.kind !== 'video' || Platform.OS === 'web') return picked;
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    const dirUri = FileSystem.documentDirectory + 'timeline-clips/';
+    const info = await FileSystem.getInfoAsync(dirUri);
+    if (!info.exists) await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+    const safe = String(picked.filename || 'clip.mp4').replace(/[^\w.\-]+/g, '_');
+    const dest = `${dirUri}${Date.now()}-${safe}`;
+    await FileSystem.copyAsync({ from: picked.uri, to: dest });
+    return { ...picked, uri: dest };
+  } catch (e) {
+    console.warn('pickClipFromGallery: video copy failed', e);
+    return picked;
+  }
+}

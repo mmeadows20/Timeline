@@ -284,6 +284,9 @@ export default function TimelineScreen({ navigation, route }) {
         {item.source === 'todo' || item.fromTodo ? (
           <Text style={styles.hobbyMeta}>To-do list</Text>
         ) : null}
+        {item.source === 'clip' ? (
+          <Text style={styles.hobbyMeta}>{item.clipStreamLabel || 'Gallery file'}</Text>
+        ) : null}
         {item.shareId && shareNotices[item.shareId] ? (
           <View style={styles.noticeFlagRow}>
             {shareNotices[item.shareId].left ? (
