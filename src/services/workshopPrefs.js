@@ -6,14 +6,14 @@ function key() {
   return uid ? `@timeline_show_workshop_${uid}` : '@timeline_show_workshop_guest';
 }
 
-/** On while features are still being built. Turn off before a tester build. */
+/** Off for new installs, including testers. Turn on in Settings → Show workshop while building. */
 export async function getShowWorkshop() {
   try {
     const raw = await AsyncStorage.getItem(key());
-    if (raw == null) return true;
+    if (raw == null) return false;
     return raw === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 
