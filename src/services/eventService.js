@@ -1151,6 +1151,18 @@ export function classifyYearBubbleKind(event) {
   };
 }
 
+function eventMonthIndex(event) {
+  const raw = String(event?.date || '');
+  const match = raw.match(/\d{4}-(\d{2})/);
+  if (match) {
+    const month = Number(match[1]) - 1;
+    if (month >= 0 && month <= 11) return month;
+  }
+  const d = new Date(event?.date);
+  if (!Number.isNaN(d.getTime())) return d.getMonth();
+  return -1;
+}
+
 /**
  * Per-year bubble summaries for YearOverviewScreen.
  * Empty years still appear (spine labels) with bubbles: [].
@@ -1194,10 +1206,30 @@ export function getYearBubbleSummaries(events) {
         return b.count - a.count || a.label.localeCompare(b.label);
       });
 
+    const monthBuckets = {};
+    list.forEach((event) => {
+      const month = eventMonthIndex(event);
+      if (month < 0) return;
+      const meta = classifyYearBubbleKind(event);
+      const key = `${month}:${meta.kind}`;
+      if (!monthBuckets[key]) {
+        monthBuckets[key] = {
+          kind: meta.kind,
+          label: meta.label,
+          color: meta.color,
+          filter: meta.filter,
+          month,
+          count: 0,
+        };
+      }
+      monthBuckets[key].count += 1;
+    });
+
     return {
       year,
       count: list.length,
       bubbles,
+      monthBubbles: Object.values(monthBuckets).sort((a, b) => a.month - b.month || b.count - a.count),
       months: monthMarksForEvents(list),
     };
   });
@@ -1229,14 +1261,7 @@ export function eventMatchesBubbleFilter(event, filter) {
 export function monthMarksForEvents(events) {
   const counts = Array(12).fill(0);
   (events || []).forEach((event) => {
-    const raw = String(event?.date || '');
-    const match = raw.match(/\d{4}-(\d{2})/);
-    let month = -1;
-    if (match) month = Number(match[1]) - 1;
-    else {
-      const d = new Date(event?.date);
-      if (!Number.isNaN(d.getTime())) month = d.getMonth();
-    }
+    const month = eventMonthIndex(event);
     if (month >= 0 && month <= 11) counts[month] += 1;
   });
   return counts.map((count, month) => ({
@@ -1853,6 +1878,7 @@ export function getItemBubblesByYear(events, filterId, dateFormat = 'dmy') {
       count: dayMonth,
       filter: { eventId: event.id },
       event,
+      month: d.getMonth(),
     });
   });
   return Object.keys(byYear)

@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions, Alert } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions, Alert, Animated, Easing } from 'react-native';
 
 export const BUBBLE_SIZE = 78;
 const VERT_GAP = 62;
@@ -9,9 +9,9 @@ const MAX_REACH = LABEL_COL / 2 + 18 + Math.max(...OFFSETS) + BUBBLE_SIZE + 20;
 export const SPINE_CANVAS_WIDTH = Math.ceil(MAX_REACH * 2);
 
 /** Opens centred. Sideways drag stays available if a row is still wider than the phone. */
-export function SpineStage({ children }) {
+export function SpineStage({ children, canvasWidth }) {
   const { width: screenW } = useWindowDimensions();
-  const canvas = screenW;
+  const canvas = Math.max(screenW, canvasWidth || 0);
 
   const scroller = useRef(null);
   const centered = useRef(false);
@@ -26,6 +26,11 @@ export function SpineStage({ children }) {
       scroller.current?.scrollTo({ x, y: 0, animated: false });
     });
   };
+
+  useEffect(() => {
+    centered.current = false;
+    tryCenter();
+  }, [canvas]);
 
   return (
     <ScrollView
@@ -191,9 +196,158 @@ function MonthLetterRow({ months, top, onOpenMonth }) {
   );
 }
 
+function MovingBubble({ node, progress, glow, onPress }) {
+  const half = BUBBLE_SIZE / 2;
+  const marginLeft = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [node.from.x - half, node.to.x - half],
+  });
+  const top = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [node.from.y - half, node.to.y - half],
+  });
+  return (
+    <Animated.View
+      style={[styles.bubbleAbs, { left: '50%', marginLeft, top, opacity: node.split ? progress : 1, zIndex: 3 }]}
+    >
+      <KindBubble bubble={node.bubble} glow={glow} onPress={onPress} />
+    </Animated.View>
+  );
+}
+
+function MonthSpoke({ x1, y1, x2, y2, opacity }) {
+  const start = { x: x1, y: y1 };
+  const end = { x: x2, y: y2 };
+  const control = { x: (x1 + x2) / 2, y: y1 + (y2 - y1) * 0.2 };
+  const steps = 12;
+  const dots = [];
+  for (let i = 1; i < steps; i += 1) {
+    if (i % 2 === 0) continue;
+    dots.push(quadPoint(start, control, end, i / steps));
+  }
+  const minX = Math.min(x1, x2, control.x) - 4;
+  const maxX = Math.max(x1, x2, control.x) + 4;
+  const minY = Math.min(y1, y2, control.y) - 4;
+  const maxY = Math.max(y1, y2, control.y) + 4;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: '50%',
+        marginLeft: minX,
+        top: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        opacity,
+        zIndex: 1,
+      }}
+    >
+      {dots.map((p, i) => (
+        <View
+          key={i}
+          style={[styles.spokeDot, { position: 'absolute', left: p.x - minX - 1.5, top: p.y - minY - 1.5 }]}
+        />
+      ))}
+    </Animated.View>
+  );
+}
+
 function staggerOffset(seed, bubbleIndex) {
   const hash = (seedNumber(seed) + bubbleIndex * 3) % OFFSETS.length;
   return OFFSETS[hash];
+}
+
+const MONTH_LETTERS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+
+function collapsedLayout(list, blockIndex, seed, screenW, boxedLabel, sublabel) {
+  const primaryLeft = blockIndex % 2 === 0;
+  const n = list.length;
+  const crowded = n >= 5;
+  const vertGap = crowded ? BUBBLE_SIZE + 12 : VERT_GAP;
+  const twoLine = boxedLabel && !!sublabel;
+  const stackHeight =
+    n === 0 ? (twoLine ? 112 : 96) : Math.max(twoLine ? 112 : 96, (n - 1) * vertGap + BUBBLE_SIZE + 28);
+  const spineY = stackHeight / 2;
+  const maxDistance = Math.max(LABEL_COL / 2 + 28 + BUBBLE_SIZE / 2, screenW / 2 - BUBBLE_SIZE / 2 - 10);
+  const bubbles = list.map((b, i) => {
+    let side = (i + (primaryLeft ? 0 : 1)) % 2 === 0 ? 'left' : 'right';
+    if (n >= 5 && i === 2) side = primaryLeft ? 'right' : 'left';
+    const rawOffset = staggerOffset(seed, i) * (crowded ? 0.5 : 0.8);
+    const distance = Math.min(LABEL_COL / 2 + 18 + rawOffset + BUBBLE_SIZE / 2, maxDistance);
+    const jitter = ((seedNumber(`${seed}:${i}`) % 5) - 2) * 4;
+    const y = n === 1 ? spineY + jitter : spineY - ((n - 1) * vertGap) / 2 + i * vertGap + jitter;
+    const x = side === 'right' ? distance : -distance;
+    return { key: b.kind, bubble: b, x, y, side };
+  });
+  return {
+    height: stackHeight,
+    spineY,
+    labelTop: twoLine ? spineY - 44 : boxedLabel ? spineY - 34 : spineY - 28,
+    twoLine,
+    bubbles,
+  };
+}
+
+function monthTickX(month, half) {
+  const inner = LABEL_COL / 2 + 28;
+  const edge = 22;
+  const span = Math.max(36, half - edge - inner);
+  if (month <= 5) return -(inner + (span * (5 - month)) / 5);
+  return inner + (span * (month - 6)) / 5;
+}
+
+function expandedLayout(monthBubbles, collapsed, width) {
+  const half = width / 2;
+  const ticks = Array.from({ length: 12 }, (_, month) => ({ month, x: monthTickX(month, half) }));
+  const groups = {};
+  (monthBubbles || []).forEach((b) => {
+    if (b.month == null || b.month < 0) return;
+    if (!groups[b.month]) groups[b.month] = [];
+    groups[b.month].push(b);
+  });
+  const biggest = {};
+  Object.values(groups).forEach((rows) => {
+    rows.forEach((b) => {
+      if (!biggest[b.kind] || b.count > biggest[b.kind].count) biggest[b.kind] = b;
+    });
+  });
+  const bubbles = [];
+  Object.keys(groups).forEach((key) => {
+    const month = Number(key);
+    groups[month].forEach((b, slot) => {
+      const above = (month + slot) % 2 === 0;
+      const y = collapsed.spineY + (above ? -1 : 1) * (92 + Math.floor(slot / 2) * (BUBBLE_SIZE + 14));
+      const keep = biggest[b.kind] === b;
+      bubbles.push({
+        key: keep ? b.kind : `${b.kind}:${month}`,
+        bubble: b,
+        x: ticks[month].x,
+        y,
+        tickX: ticks[month].x,
+        split: !keep,
+      });
+    });
+  });
+  const reach = bubbles.reduce((m, b) => Math.max(m, Math.abs(b.y - collapsed.spineY)), 0);
+  const height = Math.max(collapsed.height, (reach + BUBBLE_SIZE / 2 + 24) * 2);
+  const shift = height / 2 - collapsed.spineY;
+  return {
+    height,
+    spineY: height / 2,
+    labelTop: collapsed.labelTop + shift,
+    ticks,
+    bubbles: bubbles.map((b) => ({ ...b, y: b.y + shift })),
+    shift,
+  };
+}
+
+function startPos(node, other) {
+  const exact = other.bubbles.find((b) => b.key === node.key);
+  if (exact) return { x: exact.x, y: exact.y };
+  const same = other.bubbles.find((b) => b.bubble.kind === node.bubble.kind);
+  if (same) return { x: same.x, y: same.y };
+  return { x: 0, y: other.spineY };
 }
 
 export default function SpineKindBlock({
@@ -210,9 +364,36 @@ export default function SpineKindBlock({
   onOpenMonth,
   months,
   boxedLabel = false,
+  expanded = false,
+  monthBubbles,
   onLayout,
 }) {
   const { width: screenW } = useWindowDimensions();
+  const [blockW, setBlockW] = useState(0);
+  const width = blockW > 40 ? blockW : Math.max(screenW, expanded ? 760 : screenW);
+  const progress = useRef(new Animated.Value(1)).current;
+  const firstPaint = useRef(true);
+  const [settled, setSettled] = useState(true);
+
+  useEffect(() => {
+    if (firstPaint.current) {
+      firstPaint.current = false;
+      return;
+    }
+    setSettled(false);
+    progress.setValue(0);
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: 560,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    });
+    anim.start(({ finished }) => {
+      if (finished) setSettled(true);
+    });
+    return () => anim.stop();
+  }, [expanded, progress]);
+
   const list = bubbles || [];
   const primaryLeft = blockIndex % 2 === 0;
   const n = list.length;
@@ -242,6 +423,109 @@ export default function SpineKindBlock({
   });
 
   const labelTop = twoLine ? spineY - 44 : boxedLabel ? spineY - 34 : spineY - 28;
+  const moving = expanded || !settled;
+  const seedKey = id ?? blockIndex;
+  const folded = collapsedLayout(list, blockIndex, seedKey, width, boxedLabel, sublabel);
+  const axisSource = monthBubbles && monthBubbles.length ? monthBubbles : list.filter((b) => b.month != null);
+  const opened = expandedLayout(axisSource, folded, width);
+  const toLayout = expanded ? opened : folded;
+  const fromLayout = expanded ? folded : opened;
+  const nodes = toLayout.bubbles.map((node) => ({
+    ...node,
+    from: startPos(node, fromLayout),
+    to: { x: node.x, y: node.y },
+  }));
+  const axisOpacity = expanded
+    ? progress
+    : progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const blockHeight = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [fromLayout.height + (showMonths ? 18 : 0), toLayout.height],
+  });
+  const labelTravel = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [fromLayout.labelTop, toLayout.labelTop],
+  });
+
+  if (moving) {
+    return (
+      <Animated.View
+        onLayout={(e) => {
+          setBlockW(e.nativeEvent.layout.width);
+          if (onLayout) onLayout(e);
+        }}
+        style={[styles.block, { height: blockHeight, marginBottom: 28, zIndex: 4 }, muted && styles.blockMuted]}
+      >
+        <Animated.View pointerEvents="box-none" style={[styles.axisWrap, { opacity: axisOpacity }]}>
+          <View
+            style={[
+              styles.axisLine,
+              { top: opened.spineY, left: 10, width: Math.max(12, width / 2 - LABEL_COL / 2 - 18) },
+            ]}
+          />
+          <View
+            style={[
+              styles.axisLine,
+              {
+                top: opened.spineY,
+                left: width / 2 + LABEL_COL / 2 + 8,
+                width: Math.max(12, width / 2 - LABEL_COL / 2 - 18),
+              },
+            ]}
+          />
+          {opened.ticks.map((tick) => {
+            const mark = (months || []).find((m) => m.month === tick.month);
+            const on = (mark?.count || 0) > 0;
+            return (
+              <TouchableOpacity
+                key={tick.month}
+                style={[styles.tickHit, { marginLeft: tick.x - 12, top: opened.spineY - 28 }]}
+                onPress={() => onOpenMonth && onOpenMonth(tick.month)}
+                accessibilityLabel={MONTH_NAMES[tick.month]}
+              >
+                <Text style={on ? styles.tickOn : styles.tickOff}>{MONTH_LETTERS[tick.month]}</Text>
+                <View style={[styles.tickMark, on && styles.tickMarkOn]} />
+              </TouchableOpacity>
+            );
+          })}
+        </Animated.View>
+
+        {nodes.map((node) => (
+          <MonthSpoke
+            key={`axis-spoke-${node.key}`}
+            opacity={axisOpacity}
+            x1={node.tickX != null ? node.tickX : node.to.x}
+            y1={opened.spineY}
+            x2={node.to.x}
+            y2={node.to.y}
+          />
+        ))}
+
+        <Animated.View style={[styles.labelCol, { top: labelTravel, zIndex: 6 }]}>
+          <TouchableOpacity
+            onPress={onOpenLabel}
+            accessibilityLabel={`${expanded ? 'Fold' : 'Open'} ${label}`}
+          >
+            <View style={[boxedLabel && styles.labelChip, expanded && styles.labelChipOpen, boxedLabel && current && styles.labelChipCurrent]}>
+              <View style={[styles.dot, current && styles.dotCurrent]} />
+              <Text style={[styles.label, current && styles.labelCurrent]}>{label}</Text>
+              {sublabel ? <Text style={[styles.sublabel, current && styles.labelCurrent]}>{sublabel}</Text> : null}
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {nodes.map((node) => (
+          <MovingBubble
+            key={node.key}
+            node={node}
+            progress={progress}
+            glow={glowKey === `${id}:${node.bubble.kind}`}
+            onPress={() => onOpenBubble(node.bubble)}
+          />
+        ))}
+      </Animated.View>
+    );
+  }
 
   return (
     <View
@@ -329,6 +613,48 @@ const styles = StyleSheet.create({
   labelChipCurrent: {
     borderColor: '#facc15',
     backgroundColor: '#1a1630',
+  },
+  labelChipOpen: {
+    borderColor: '#c4b5fd',
+    backgroundColor: '#1e1b4b',
+  },
+  axisWrap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 4,
+  },
+  axisLine: {
+    position: 'absolute',
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#7c3aed',
+  },
+  tickHit: {
+    position: 'absolute',
+    left: '50%',
+    width: 24,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  tickOn: {
+    color: '#f5f3ff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  tickOff: {
+    color: '#6b6288',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tickMark: {
+    marginTop: 2,
+    width: 2,
+    height: 12,
+    borderRadius: 1,
+    backgroundColor: '#6b6288',
+  },
+  tickMarkOn: {
+    backgroundColor: '#ddd6fe',
+    height: 16,
   },
   dot: {
     width: 12,

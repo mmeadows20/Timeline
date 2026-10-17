@@ -39,6 +39,7 @@ export default function YearOverviewScreen({ navigation, route }) {
   const [filterId, setFilterId] = useState(route.params?.filter || 'all');
   const [filters, setFilters] = useState(TIMELINE_FILTERS);
   const [dateFormat, setDateFormat] = useState('dmy');
+  const [openYear, setOpenYear] = useState(null);
   const activeFilter = filters.find((f) => f.id === filterId) || filters[0];
   const itemView = !!activeFilter.itemView;
 
@@ -81,18 +82,8 @@ export default function YearOverviewScreen({ navigation, route }) {
     return best;
   }, [years]);
 
-  const openYear = (year) => {
-    if (filterId && filterId !== 'all') {
-      navigation.navigate('MonthOverview', {
-        year,
-        kind: filterId === 'poems' ? 'poem' : activeFilter.id,
-        label: activeFilter.label,
-        source: filterId === 'poems' ? undefined : filterId,
-        hobbyType: filterId === 'poems' ? 'poetry' : undefined,
-      });
-      return;
-    }
-    navigation.navigate('MonthOverview', { year });
+  const toggleYear = (year) => {
+    setOpenYear((cur) => (cur === year ? null : year));
   };
 
   const openMonth = (year, month) => {
@@ -131,7 +122,11 @@ export default function YearOverviewScreen({ navigation, route }) {
       kind: bubble.kind,
       ...(bubble.filter || {}),
     };
-    const blurbs = getYearBubblePreviewBlurbs(events, year, filter);
+    const blurbs = getYearBubblePreviewBlurbs(events, year, filter).filter((b) => {
+      if (bubble.month == null) return true;
+      const d = new Date(b.event?.date);
+      return !Number.isNaN(d.getTime()) && d.getMonth() === bubble.month;
+    });
     setPreview({ year, bubble, blurbs });
   };
 
@@ -175,6 +170,7 @@ export default function YearOverviewScreen({ navigation, route }) {
     }
     navigation.navigate('MonthOverview', {
       year,
+      focusMonth: bubble.month,
       kind: bubble.kind,
       label: bubble.label,
       category: bubble.filter?.category,
@@ -230,6 +226,11 @@ export default function YearOverviewScreen({ navigation, route }) {
           {activeFilter.label} on the timeline — each bubble is one item, grouped by year.
         </Text>
       ) : null}
+      {openYear != null ? (
+        <Text style={styles.filterHint}>
+          {openYear} is open. Each bubble sits on its month. Tap a month letter to go into that month, or tap {openYear} again to fold it away.
+        </Text>
+      ) : null}
       <ScrollView contentContainerStyle={styles.scroll} directionalLockEnabled nestedScrollEnabled>
         {years.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -261,7 +262,7 @@ export default function YearOverviewScreen({ navigation, route }) {
             )}
           </View>
         ) : (
-          <SpineStage>
+          <SpineStage canvasWidth={openYear != null ? 760 : 0}>
             <View style={styles.spine} />
             {years.map((item, index) => (
               <SpineKindBlock
@@ -269,11 +270,13 @@ export default function YearOverviewScreen({ navigation, route }) {
                 id={item.year}
                 label={String(item.year)}
                 bubbles={item.bubbles}
+                monthBubbles={item.monthBubbles || item.bubbles}
                 months={item.months}
                 blockIndex={index}
                 glowKey={itemView ? null : glowKey}
                 boxedLabel
-                onOpenLabel={() => openYear(item.year)}
+                expanded={openYear === item.year}
+                onOpenLabel={() => toggleYear(item.year)}
                 onOpenMonth={(month) => openMonth(item.year, month)}
                 onOpenBubble={(bubble) => openBubble(item.year, bubble)}
               />
