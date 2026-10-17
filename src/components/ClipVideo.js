@@ -1,13 +1,28 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
+
+function loadPlayer() {
+  try {
+    const av = require('expo-av');
+    if (!av || !av.Video) return null;
+    return av;
+  } catch (_) {
+    return null;
+  }
+}
 
 export default function ClipVideo({ uri, style }) {
   const [failed, setFailed] = useState(false);
+  const av = loadPlayer();
   if (!uri) return null;
-  if (failed) {
-    return <Text style={styles.fail}>This video could not be shown. The file is still saved on this device.</Text>;
+  if (!av || failed) {
+    return (
+      <Text style={styles.fail}>
+        This video is saved on this device. This copy of Expo Go cannot play it yet.
+      </Text>
+    );
   }
+  const { Video, ResizeMode } = av;
   return (
     <View style={styles.wrap}>
       <Video
