@@ -15,6 +15,8 @@ import {
   getWeekStart,
   getDayBubbleSummaries,
   getDayBubblePreviewBlurbs,
+  getDayHourBubbles,
+  getDayHourPreviewBlurbs,
   getMonthName,
   EVENTS_FIRESTORE_SYNC_ENABLED,
 } from '../services/eventService';
@@ -91,6 +93,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
   const [filterLabel, setFilterLabel] = useState(() => route.params?.label || '');
   const [preview, setPreview] = useState(null);
   const [weekStart, setWeekStart] = useState(() => weekFromParams(route.params));
+  const [openDayId, setOpenDayId] = useState(null);
 
   useEffect(() => {
     setActiveFilter(buildBubbleFilterFromParams(route.params));
@@ -153,6 +156,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
       days.map((day) => ({
         ...day,
         bubbles: getDayBubbleSummaries(events, day.date, activeFilter || undefined),
+        hourBubbles: getDayHourBubbles(events, day.date, activeFilter || undefined),
       })),
     [days, events, activeFilter]
   );
@@ -175,6 +179,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
     const next = new Date(weekStart);
     next.setDate(next.getDate() + delta * 7);
     const start = getWeekStart(next);
+    setOpenDayId(null);
     setWeekStart(start);
     navigation.setParams({
       year: start.getFullYear(),
@@ -207,12 +212,19 @@ export default function WeekOverviewScreen({ navigation, route }) {
   };
 
   const openDay = (day) => {
+    setOpenDayId((cur) => (cur === day.isoDate ? null : day.isoDate));
+  };
+
+  const openTimeline = (day) => {
     navigation.navigate('Timeline', { year: day.year, month: day.date.getMonth() });
   };
 
   const openBubble = (day, bubble) => {
     const filter = { kind: bubble.kind, ...(bubble.filter || {}) };
-    const blurbs = getDayBubblePreviewBlurbs(events, day.date, filter, 6);
+    const blurbs =
+      bubble.hour != null
+        ? getDayHourPreviewBlurbs(events, day.date, filter, bubble.hour, 8)
+        : getDayBubblePreviewBlurbs(events, day.date, filter, 6);
     setPreview({ day, bubble, blurbs });
   };
 
@@ -220,7 +232,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
     if (!preview) return;
     const { day } = preview;
     setPreview(null);
-    openDay(day);
+    openTimeline(day);
   };
 
   if (loading) {
@@ -235,8 +247,10 @@ export default function WeekOverviewScreen({ navigation, route }) {
   }
 
   const title = formatWeekTitle(days);
+  const previewHour =
+    preview?.bubble?.hour != null ? String(preview.bubble.hour).padStart(2, '0') + ':00' : '';
   const previewTitle = preview
-    ? `${preview.day?.weekdayShort || ''} ${preview.day?.dayOfMonth || ''} · ${preview.bubble?.label || 'Events'}`
+    ? `${preview.day?.weekdayShort || ''} ${preview.day?.dayOfMonth || ''}${previewHour ? ` · ${previewHour}` : ''} · ${preview.bubble?.label || 'Events'}`
     : '';
 
   return (
@@ -255,7 +269,9 @@ export default function WeekOverviewScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
         <Text style={styles.intro}>
-          Same central axis as years and months: one week, days in boxes, type-bubbles on the sides.
+          {openDayId
+            ? '00–11 sit on the left, 12–23 on the right. Bubbles use the time set on the event, or when it was created or last saved. Tap the day again to fold the hours away.'
+            : 'Tap a day to spread the hours of that day. Tap it again to fold them away.'}
         </Text>
         {activeFilter ? (
           <View style={styles.chipRow}>
@@ -265,7 +281,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        <SpineStage>
+        <SpineStage canvasWidth={openDayId ? 1120 : undefined}>
         <View style={styles.spine} />
         {daysWithBubbles.map((day, index) => (
           <SpineKindBlock
@@ -275,9 +291,11 @@ export default function WeekOverviewScreen({ navigation, route }) {
             sublabel={String(day.dayOfMonth)}
             current={day.isToday}
             bubbles={day.bubbles}
+            hourBubbles={day.hourBubbles}
             blockIndex={index}
             glowKey={glowKey}
             boxedLabel
+            expanded={openDayId === day.isoDate}
             onOpenLabel={() => openDay(day)}
             onOpenBubble={(bubble) => openBubble(day, bubble)}
           />

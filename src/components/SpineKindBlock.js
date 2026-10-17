@@ -363,13 +363,16 @@ function hourTickX(hour, half) {
 
 const HOUR_GROUPS = ['Night', 'Morning', 'Afternoon', 'Evening'];
 
-function hourExpandedLayout(hourBubbles, collapsed, width) {
+function hourExpandedLayout(hourBubbles, collapsed, width, nowHour) {
   const half = width / 2;
+  const used = new Set((hourBubbles || []).map((b) => b.hour));
   const ticks = Array.from({ length: 24 }, (_, hour) => ({
     hour,
     label: String(hour).padStart(2, '0'),
     groupStart: hour % 6 === 0,
     group: HOUR_GROUPS[Math.floor(hour / 6)],
+    hot: used.has(hour),
+    now: nowHour != null && hour === nowHour,
     x: hourTickX(hour, half),
   }));
   const byX = Object.fromEntries(ticks.map((t) => [t.hour, t.x]));
@@ -524,7 +527,8 @@ export default function SpineKindBlock({
   const [blockW, setBlockW] = useState(0);
   const width = blockW > 40 ? blockW : screenW;
   const perSide = hourBubbles ? 12 : dayBubbles ? Math.min(16, Math.ceil((dayCount || 30) / 2)) : 6;
-  const bubbleSize = axisBubbleSize(width, perSide);
+  const rawSize = axisBubbleSize(width, perSide);
+  const bubbleSize = hourBubbles ? Math.min(rawSize, 52) : rawSize;
   const progress = useRef(new Animated.Value(1)).current;
   const firstPaint = useRef(true);
   const [settled, setSettled] = useState(true);
@@ -581,8 +585,9 @@ export default function SpineKindBlock({
   const seedKey = id ?? blockIndex;
   const folded = collapsedLayout(list, blockIndex, seedKey, width, boxedLabel, sublabel);
   const axisSource = monthBubbles && monthBubbles.length ? monthBubbles : list.filter((b) => b.month != null);
+  const nowHour = current && hourBubbles ? new Date().getHours() : null;
   const opened = hourBubbles
-    ? hourExpandedLayout(hourBubbles, folded, width)
+    ? hourExpandedLayout(hourBubbles, folded, width, nowHour)
     : dayBubbles
       ? dayExpandedLayout(dayBubbles, dayCount, folded, width)
       : expandedLayout(axisSource, folded, width);
@@ -639,8 +644,14 @@ export default function SpineKindBlock({
                   style={[styles.tickHit, styles.dayTick, { marginLeft: tick.x - 16, top: opened.spineY - (tick.groupStart ? 44 : 26) }]}
                 >
                   {tick.groupStart ? <Text style={styles.weekTag}>{tick.group}</Text> : null}
-                  <Text style={styles.dayNum}>{tick.label}</Text>
-                  <View style={[styles.tickMark, tick.groupStart && styles.tickMarkOn, tick.groupStart && styles.weekTick]} />
+                  <Text style={[styles.dayNum, tick.now && styles.labelCurrent]}>{tick.label}</Text>
+                  <View
+                    style={[
+                      styles.tickMark,
+                      (tick.groupStart || tick.hot || tick.now) && styles.tickMarkOn,
+                      (tick.groupStart || tick.now) && styles.weekTick,
+                    ]}
+                  />
                 </View>
               );
             }

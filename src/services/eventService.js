@@ -1448,6 +1448,85 @@ export function getDayBubbleSummaries(events, date, filter) {
   return sortKindBubbles(buckets);
 }
 
+/** Clock the event was set to, otherwise when it was created, otherwise last saved.
+ * A date-only value (or UTC midnight from a date-only save) is not a set time.
+ */
+export function eventClockDate(event) {
+  const dateStr = String(event?.date || '');
+  const setAt = dateStr ? new Date(dateStr) : null;
+  const setOk = !!(setAt && !Number.isNaN(setAt.getTime()));
+  const dateOnly =
+    !setOk ||
+    !/T\d{2}:\d{2}/.test(dateStr) ||
+    (setAt.getUTCHours() === 0 &&
+      setAt.getUTCMinutes() === 0 &&
+      setAt.getUTCSeconds() === 0 &&
+      setAt.getUTCMilliseconds() === 0);
+  if (setOk && !dateOnly) return setAt;
+  const created = event?.createdAt ? new Date(event.createdAt) : null;
+  if (created && !Number.isNaN(created.getTime())) return created;
+  const saved = event?.updatedAt ? new Date(event.updatedAt) : null;
+  if (saved && !Number.isNaN(saved.getTime())) return saved;
+  return setOk ? setAt : null;
+}
+
+export function getDayHourBubbles(events, date, filter) {
+  const buckets = {};
+  (events || []).forEach((event) => {
+    if (!eventOnLocalDay(event, date)) return;
+    if (filter && !eventMatchesBubbleFilter(event, filter)) return;
+    const clock = eventClockDate(event);
+    if (!clock) return;
+    const hour = clock.getHours();
+    const meta = classifyYearBubbleKind(event);
+    const key = `${hour}:${meta.kind}`;
+    if (!buckets[key]) {
+      buckets[key] = {
+        kind: meta.kind,
+        label: meta.label,
+        color: meta.color,
+        filter: meta.filter,
+        hour,
+        count: 0,
+      };
+    }
+    buckets[key].count += 1;
+  });
+  return Object.values(buckets).sort((a, b) => a.hour - b.hour || b.count - a.count);
+}
+
+function clockStamp(event) {
+  const clock = eventClockDate(event);
+  if (!clock) return '';
+  const hh = String(clock.getHours()).padStart(2, '0');
+  const mm = String(clock.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+export function getDayHourPreviewBlurbs(events, date, filter, hour, limit = 8) {
+  const matched = (events || [])
+    .filter((e) => {
+      if (!eventOnLocalDay(e, date)) return false;
+      if (filter && !eventMatchesBubbleFilter(e, filter)) return false;
+      const clock = eventClockDate(e);
+      if (hour == null) return true;
+      return !!(clock && clock.getHours() === hour);
+    })
+    .sort((a, b) => (eventClockDate(a)?.getTime() || 0) - (eventClockDate(b)?.getTime() || 0));
+  return matched.slice(0, Math.max(0, limit)).map((e) => {
+    const d = new Date(e.date);
+    const time = clockStamp(e);
+    return {
+      id: e.id,
+      event: e,
+      title: e.title || 'Untitled',
+      dateLabel: `${d.getDate()} ${PREVIEW_MONTH_SHORT[d.getMonth()]}${time ? ` · ${time}` : ''}`,
+      labels: Array.isArray(e.labels) ? e.labels : [],
+      imageUri: e.imageUri || '',
+    };
+  });
+}
+
 export function getDayBubblePreviewBlurbs(events, date, filter, limit = 6) {
   const matched = (events || [])
     .filter((e) => eventOnLocalDay(e, date) && eventMatchesBubbleFilter(e, filter))
