@@ -262,7 +262,7 @@ export default function YearOverviewScreen({ navigation, route }) {
             )}
           </View>
         ) : (
-          <SpineStage canvasWidth={openYear != null ? 760 : 0}>
+          <SpineStage>
             <View style={styles.spine} />
             {years.map((item, index) => (
               <SpineKindBlock

@@ -288,7 +288,7 @@ export default function MonthOverviewScreen({ navigation, route }) {
               stageY.current = e.nativeEvent.layout.y;
             }}
           >
-          <SpineStage canvasWidth={openMonthIndex != null ? 1100 : 0}>
+          <SpineStage>
             <View style={styles.spine} />
             {months.map((m, index) => (
               <SpineKindBlock

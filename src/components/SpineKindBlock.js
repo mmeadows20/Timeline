@@ -123,7 +123,8 @@ function CurvedDashedSpoke({ side, distance, bubbleCenterY, spineY }) {
   );
 }
 
-function KindBubble({ bubble, glow, onPress, style }) {
+function KindBubble({ bubble, glow, onPress, style, size }) {
+  const s = size || BUBBLE_SIZE;
   const raw = bubble.count;
   const isDate = String(raw || '').includes('/');
   const n = typeof raw === 'number' ? raw : parseInt(String(raw || ''), 10);
@@ -138,7 +139,7 @@ function KindBubble({ bubble, glow, onPress, style }) {
     <TouchableOpacity
       style={[
         styles.kindBubble,
-        { backgroundColor: bubble.color, borderColor: bubble.color },
+        { backgroundColor: bubble.color, borderColor: bubble.color, width: s, height: s, borderRadius: s / 2 },
         glow && styles.kindBubbleGlow,
         style,
       ]}
@@ -151,10 +152,10 @@ function KindBubble({ bubble, glow, onPress, style }) {
       accessibilityLabel={`${bubble.label} ${countText}`}
       activeOpacity={0.85}
     >
-      <Text style={styles.kindLabel} numberOfLines={isDate ? 2 : 1}>
+      <Text style={[styles.kindLabel, s < 64 && styles.kindLabelSmall]} numberOfLines={isDate ? 2 : 1}>
         {bubble.label}
       </Text>
-      <Text style={[styles.kindCount, styles.kindCountDate]} numberOfLines={1}>
+      <Text style={[styles.kindCount, styles.kindCountDate, s < 64 && styles.kindCountSmall]} numberOfLines={1}>
         {countText}
       </Text>
     </TouchableOpacity>
@@ -196,8 +197,8 @@ function MonthLetterRow({ months, top, onOpenMonth }) {
   );
 }
 
-function MovingBubble({ node, progress, glow, onPress }) {
-  const half = BUBBLE_SIZE / 2;
+function MovingBubble({ node, progress, glow, onPress, size }) {
+  const half = (size || BUBBLE_SIZE) / 2;
   const marginLeft = progress.interpolate({
     inputRange: [0, 1],
     outputRange: [node.from.x - half, node.to.x - half],
@@ -210,7 +211,7 @@ function MovingBubble({ node, progress, glow, onPress }) {
     <Animated.View
       style={[styles.bubbleAbs, { left: '50%', marginLeft, top, opacity: node.split ? progress : 1, zIndex: 3 }]}
     >
-      <KindBubble bubble={node.bubble} glow={glow} onPress={onPress} />
+      <KindBubble bubble={node.bubble} glow={glow} onPress={onPress} size={size} />
     </Animated.View>
   );
 }
@@ -289,6 +290,12 @@ function collapsedLayout(list, blockIndex, seed, screenW, boxedLabel, sublabel) 
   };
 }
 
+function axisBubbleSize(width, perSide) {
+  const span = Math.max(48, width / 2 - LABEL_COL / 2 - 36);
+  const step = span / Math.max(1, perSide - 1);
+  return Math.max(46, Math.min(BUBBLE_SIZE, Math.round(step * 2.2)));
+}
+
 function monthTickX(month, half) {
   const inner = LABEL_COL / 2 + 28;
   const edge = 22;
@@ -342,6 +349,73 @@ function expandedLayout(monthBubbles, collapsed, width) {
   };
 }
 
+function hourTickX(hour, half) {
+  const inner = LABEL_COL / 2 + 34;
+  const edge = 18;
+  const span = Math.max(120, half - edge - inner);
+  if (hour <= 11) {
+    const t = hour / 11;
+    return -(inner + span * (1 - t));
+  }
+  const t = (hour - 12) / 11;
+  return inner + span * t;
+}
+
+const HOUR_GROUPS = ['Night', 'Morning', 'Afternoon', 'Evening'];
+
+function hourExpandedLayout(hourBubbles, collapsed, width) {
+  const half = width / 2;
+  const ticks = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, '0'),
+    groupStart: hour % 6 === 0,
+    group: HOUR_GROUPS[Math.floor(hour / 6)],
+    x: hourTickX(hour, half),
+  }));
+  const byX = Object.fromEntries(ticks.map((t) => [t.hour, t.x]));
+  const groups = {};
+  (hourBubbles || []).forEach((b) => {
+    if (b.hour == null || b.hour < 0 || b.hour > 23) return;
+    if (!groups[b.hour]) groups[b.hour] = [];
+    groups[b.hour].push(b);
+  });
+  const biggest = {};
+  Object.values(groups).forEach((rows) => {
+    rows.forEach((b) => {
+      if (!biggest[b.kind] || b.count > biggest[b.kind].count) biggest[b.kind] = b;
+    });
+  });
+  const bubbles = [];
+  Object.keys(groups).forEach((key) => {
+    const hour = Number(key);
+    groups[hour].forEach((b, slot) => {
+      const above = (hour + slot) % 2 === 0;
+      const y = collapsed.spineY + (above ? -1 : 1) * (108 + Math.floor(slot / 2) * (BUBBLE_SIZE + 12));
+      const keep = biggest[b.kind] === b;
+      bubbles.push({
+        key: keep ? b.kind : `${b.kind}:${hour}`,
+        bubble: b,
+        x: byX[hour],
+        y,
+        tickX: byX[hour],
+        split: !keep,
+      });
+    });
+  });
+  const reach = bubbles.reduce((m, b) => Math.max(m, Math.abs(b.y - collapsed.spineY)), 108);
+  const height = Math.max(collapsed.height, (reach + BUBBLE_SIZE / 2 + 36) * 2);
+  const shift = height / 2 - collapsed.spineY;
+  return {
+    height,
+    spineY: height / 2,
+    labelTop: collapsed.labelTop + shift,
+    ticks,
+    bubbles: bubbles.map((b) => ({ ...b, y: b.y + shift })),
+    shift,
+    hours: true,
+  };
+}
+
 function dayTickX(day, dayCount, half) {
   const inner = LABEL_COL / 2 + 34;
   const edge = 18;
@@ -360,6 +434,7 @@ function dayTickX(day, dayCount, half) {
 function dayExpandedLayout(dayBubbles, dayCount, collapsed, width) {
   const count = Math.min(31, Math.max(28, dayCount || 30));
   const half = width / 2;
+  const usedDays = new Set((dayBubbles || []).map((b) => b.day));
   const ticks = Array.from({ length: count }, (_, i) => {
     const day = i + 1;
     const week = Math.floor(i / 7) + 1;
@@ -367,6 +442,7 @@ function dayExpandedLayout(dayBubbles, dayCount, collapsed, width) {
       day,
       week,
       weekStart: i % 7 === 0,
+      hot: usedDays.has(day),
       x: dayTickX(day, count, half),
     };
   });
@@ -440,12 +516,15 @@ export default function SpineKindBlock({
   monthBubbles,
   dayBubbles,
   dayCount = 31,
+  hourBubbles,
   onOpenDay,
   onLayout,
 }) {
   const { width: screenW } = useWindowDimensions();
   const [blockW, setBlockW] = useState(0);
-  const width = blockW > 40 ? blockW : Math.max(screenW, expanded ? (dayBubbles ? 1100 : 760) : screenW);
+  const width = blockW > 40 ? blockW : screenW;
+  const perSide = hourBubbles ? 12 : dayBubbles ? Math.min(16, Math.ceil((dayCount || 30) / 2)) : 6;
+  const bubbleSize = axisBubbleSize(width, perSide);
   const progress = useRef(new Animated.Value(1)).current;
   const firstPaint = useRef(true);
   const [settled, setSettled] = useState(true);
@@ -502,9 +581,11 @@ export default function SpineKindBlock({
   const seedKey = id ?? blockIndex;
   const folded = collapsedLayout(list, blockIndex, seedKey, width, boxedLabel, sublabel);
   const axisSource = monthBubbles && monthBubbles.length ? monthBubbles : list.filter((b) => b.month != null);
-  const opened = dayBubbles
-    ? dayExpandedLayout(dayBubbles, dayCount, folded, width)
-    : expandedLayout(axisSource, folded, width);
+  const opened = hourBubbles
+    ? hourExpandedLayout(hourBubbles, folded, width)
+    : dayBubbles
+      ? dayExpandedLayout(dayBubbles, dayCount, folded, width)
+      : expandedLayout(axisSource, folded, width);
   const toLayout = expanded ? opened : folded;
   const fromLayout = expanded ? folded : opened;
   const nodes = toLayout.bubbles.map((node) => ({
@@ -551,7 +632,21 @@ export default function SpineKindBlock({
             ]}
           />
           {opened.ticks.map((tick) => {
+            if (tick.hour != null) {
+              return (
+                <View
+                  key={`h-${tick.hour}`}
+                  style={[styles.tickHit, styles.dayTick, { marginLeft: tick.x - 16, top: opened.spineY - (tick.groupStart ? 44 : 26) }]}
+                >
+                  {tick.groupStart ? <Text style={styles.weekTag}>{tick.group}</Text> : null}
+                  <Text style={styles.dayNum}>{tick.label}</Text>
+                  <View style={[styles.tickMark, tick.groupStart && styles.tickMarkOn, tick.groupStart && styles.weekTick]} />
+                </View>
+              );
+            }
             if (tick.day) {
+              const compact = width < 560;
+              const showNum = !compact || tick.weekStart || tick.hot;
               return (
                 <TouchableOpacity
                   key={`d-${tick.day}`}
@@ -559,9 +654,13 @@ export default function SpineKindBlock({
                   onPress={() => onOpenDay && onOpenDay(tick.day)}
                   accessibilityLabel={tick.weekStart ? `Week ${tick.week}, day ${tick.day}` : `Day ${tick.day}`}
                 >
-                  {tick.weekStart ? <Text style={styles.weekTag}>Week {tick.week}</Text> : null}
-                  <Text style={styles.dayNum}>{tick.day}</Text>
-                  <View style={[styles.tickMark, tick.weekStart && styles.tickMarkOn, tick.weekStart && styles.weekTick]} />
+                  {tick.weekStart ? (
+                    <Text style={styles.weekTag}>{compact ? `W${tick.week}` : `Week ${tick.week}`}</Text>
+                  ) : null}
+                  <Text style={[styles.dayNum, compact && styles.dayNumTiny, !showNum && styles.dayNumHide]}>
+                    {showNum ? tick.day : ' '}
+                  </Text>
+                  <View style={[styles.tickMark, (tick.weekStart || tick.hot) && styles.tickMarkOn, tick.weekStart && styles.weekTick]} />
                 </TouchableOpacity>
               );
             }
@@ -612,6 +711,7 @@ export default function SpineKindBlock({
             progress={progress}
             glow={glowKey === `${id}:${node.bubble.kind}`}
             onPress={() => onOpenBubble(node.bubble)}
+            size={bubbleSize}
           />
         ))}
       </Animated.View>
@@ -753,6 +853,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 13,
   },
+  dayNumTiny: {
+    fontSize: 9,
+    lineHeight: 11,
+  },
+  dayNumHide: {
+    color: 'transparent',
+  },
   weekTag: {
     color: '#c4b5fd',
     fontSize: 10,
@@ -868,11 +975,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+  kindLabelSmall: {
+    fontSize: 10,
+  },
   kindCount: {
     color: '#ffffff',
     fontSize: 18,
     fontWeight: '800',
     marginTop: 2,
+  },
+  kindCountSmall: {
+    fontSize: 11,
+    marginTop: 0,
   },
   kindCountDate: {
     fontSize: 14,
