@@ -342,6 +342,78 @@ function expandedLayout(monthBubbles, collapsed, width) {
   };
 }
 
+function dayTickX(day, dayCount, half) {
+  const inner = LABEL_COL / 2 + 34;
+  const edge = 18;
+  const span = Math.max(120, half - edge - inner);
+  const leftCount = Math.min(14, dayCount);
+  const rightCount = Math.max(1, dayCount - leftCount);
+  if (day <= leftCount) {
+    const t = leftCount <= 1 ? 1 : (day - 1) / (leftCount - 1);
+    return -(inner + span * (1 - t));
+  }
+  const index = day - leftCount - 1;
+  const t = rightCount <= 1 ? 0 : index / (rightCount - 1);
+  return inner + span * t;
+}
+
+function dayExpandedLayout(dayBubbles, dayCount, collapsed, width) {
+  const count = Math.min(31, Math.max(28, dayCount || 30));
+  const half = width / 2;
+  const ticks = Array.from({ length: count }, (_, i) => {
+    const day = i + 1;
+    const week = Math.floor(i / 7) + 1;
+    return {
+      day,
+      week,
+      weekStart: i % 7 === 0,
+      x: dayTickX(day, count, half),
+    };
+  });
+  const byX = Object.fromEntries(ticks.map((t) => [t.day, t.x]));
+  const groups = {};
+  (dayBubbles || []).forEach((b) => {
+    if (!b.day || b.day < 1 || b.day > count) return;
+    if (!groups[b.day]) groups[b.day] = [];
+    groups[b.day].push(b);
+  });
+  const biggest = {};
+  Object.values(groups).forEach((rows) => {
+    rows.forEach((b) => {
+      if (!biggest[b.kind] || b.count > biggest[b.kind].count) biggest[b.kind] = b;
+    });
+  });
+  const bubbles = [];
+  Object.keys(groups).forEach((key) => {
+    const day = Number(key);
+    groups[day].forEach((b, slot) => {
+      const above = (day + slot) % 2 === 0;
+      const y = collapsed.spineY + (above ? -1 : 1) * (108 + Math.floor(slot / 2) * (BUBBLE_SIZE + 12));
+      const keep = biggest[b.kind] === b;
+      bubbles.push({
+        key: keep ? b.kind : `${b.kind}:${day}`,
+        bubble: b,
+        x: byX[day],
+        y,
+        tickX: byX[day],
+        split: !keep,
+      });
+    });
+  });
+  const reach = bubbles.reduce((m, b) => Math.max(m, Math.abs(b.y - collapsed.spineY)), 108);
+  const height = Math.max(collapsed.height, (reach + BUBBLE_SIZE / 2 + 36) * 2);
+  const shift = height / 2 - collapsed.spineY;
+  return {
+    height,
+    spineY: height / 2,
+    labelTop: collapsed.labelTop + shift,
+    ticks: ticks.map((t) => ({ ...t, x: t.x })),
+    bubbles: bubbles.map((b) => ({ ...b, y: b.y + shift })),
+    shift,
+    days: true,
+  };
+}
+
 function startPos(node, other) {
   const exact = other.bubbles.find((b) => b.key === node.key);
   if (exact) return { x: exact.x, y: exact.y };
@@ -366,11 +438,14 @@ export default function SpineKindBlock({
   boxedLabel = false,
   expanded = false,
   monthBubbles,
+  dayBubbles,
+  dayCount = 31,
+  onOpenDay,
   onLayout,
 }) {
   const { width: screenW } = useWindowDimensions();
   const [blockW, setBlockW] = useState(0);
-  const width = blockW > 40 ? blockW : Math.max(screenW, expanded ? 760 : screenW);
+  const width = blockW > 40 ? blockW : Math.max(screenW, expanded ? (dayBubbles ? 1100 : 760) : screenW);
   const progress = useRef(new Animated.Value(1)).current;
   const firstPaint = useRef(true);
   const [settled, setSettled] = useState(true);
@@ -427,7 +502,9 @@ export default function SpineKindBlock({
   const seedKey = id ?? blockIndex;
   const folded = collapsedLayout(list, blockIndex, seedKey, width, boxedLabel, sublabel);
   const axisSource = monthBubbles && monthBubbles.length ? monthBubbles : list.filter((b) => b.month != null);
-  const opened = expandedLayout(axisSource, folded, width);
+  const opened = dayBubbles
+    ? dayExpandedLayout(dayBubbles, dayCount, folded, width)
+    : expandedLayout(axisSource, folded, width);
   const toLayout = expanded ? opened : folded;
   const fromLayout = expanded ? folded : opened;
   const nodes = toLayout.bubbles.map((node) => ({
@@ -474,6 +551,20 @@ export default function SpineKindBlock({
             ]}
           />
           {opened.ticks.map((tick) => {
+            if (tick.day) {
+              return (
+                <TouchableOpacity
+                  key={`d-${tick.day}`}
+                  style={[styles.tickHit, styles.dayTick, { marginLeft: tick.x - 14, top: opened.spineY - (tick.weekStart ? 44 : 26) }]}
+                  onPress={() => onOpenDay && onOpenDay(tick.day)}
+                  accessibilityLabel={tick.weekStart ? `Week ${tick.week}, day ${tick.day}` : `Day ${tick.day}`}
+                >
+                  {tick.weekStart ? <Text style={styles.weekTag}>Week {tick.week}</Text> : null}
+                  <Text style={styles.dayNum}>{tick.day}</Text>
+                  <View style={[styles.tickMark, tick.weekStart && styles.tickMarkOn, tick.weekStart && styles.weekTick]} />
+                </TouchableOpacity>
+              );
+            }
             const mark = (months || []).find((m) => m.month === tick.month);
             const on = (mark?.count || 0) > 0;
             return (
@@ -655,6 +746,24 @@ const styles = StyleSheet.create({
   tickMarkOn: {
     backgroundColor: '#ddd6fe',
     height: 16,
+  },
+  dayNum: {
+    color: '#e9e4ff',
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 13,
+  },
+  weekTag: {
+    color: '#c4b5fd',
+    fontSize: 10,
+    fontWeight: '800',
+    marginBottom: 1,
+  },
+  dayTick: {
+    width: 28,
+  },
+  weekTick: {
+    height: 18,
   },
   dot: {
     width: 12,

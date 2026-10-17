@@ -87,6 +87,7 @@ export default function MonthOverviewScreen({ navigation, route }) {
   const [activeFilter, setActiveFilter] = useState(() => buildBubbleFilterFromParams(route.params));
   const [filterLabel, setFilterLabel] = useState(() => route.params?.label || '');
   const [preview, setPreview] = useState(null);
+  const [openMonthIndex, setOpenMonthIndex] = useState(null);
   const scroller = useRef(null);
   const stageY = useRef(0);
   const blockY = useRef({});
@@ -173,17 +174,15 @@ export default function MonthOverviewScreen({ navigation, route }) {
     });
   };
 
-  const openMonth = (monthIndex) => {
-    navigation.navigate(
-      'WeekOverview',
-      weekNavParams(
-        startYear,
-        monthIndex,
-        activeFilter,
-        filterLabel,
-        firstIsoInMonth(events, startYear, monthIndex, activeFilter),
-      ),
-    );
+  const toggleMonth = (monthIndex) => {
+    setOpenMonthIndex((cur) => (cur === monthIndex ? null : monthIndex));
+  };
+
+  const openWeek = (monthIndex, day) => {
+    const iso = day
+      ? `${startYear}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      : firstIsoInMonth(events, startYear, monthIndex, activeFilter);
+    navigation.navigate('WeekOverview', weekNavParams(startYear, monthIndex, activeFilter, filterLabel, iso));
   };
 
   const openBubble = (monthRow, bubble) => {
@@ -191,7 +190,11 @@ export default function MonthOverviewScreen({ navigation, route }) {
       kind: bubble.kind,
       ...(bubble.filter || {}),
     };
-    const blurbs = getMonthBubblePreviewBlurbs(events, startYear, monthRow.month, filter);
+    const blurbs = getMonthBubblePreviewBlurbs(events, startYear, monthRow.month, filter).filter((b) => {
+      if (bubble.day == null) return true;
+      const d = new Date(b.event?.date);
+      return !Number.isNaN(d.getTime()) && d.getDate() === bubble.day;
+    });
     setPreview({ monthRow, bubble, blurbs });
   };
 
@@ -243,9 +246,14 @@ export default function MonthOverviewScreen({ navigation, route }) {
         </Text>
         {filtered ? null : (
           <Text style={styles.intro}>
-            Same as years: month on the central axis, type-bubbles on spokes. Tap a bubble, then zoom in to the weeks.
+            Same as years: tap a month to spread its days. Tap the month again to fold them away.
           </Text>
         )}
+        {openMonthIndex != null ? (
+          <Text style={styles.intro}>
+            Days 1 to 14 sit on the left, the rest on the right, in weeks. Tap a day to open that week, or tap the month again to close it.
+          </Text>
+        ) : null}
         {activeFilter ? (
           <View style={[styles.chipRow, styles.chipRowFiltered]}>
             <TouchableOpacity
@@ -271,7 +279,7 @@ export default function MonthOverviewScreen({ navigation, route }) {
             year={startYear}
             now={now}
             filterLabel={chipText}
-            onOpenMonth={openMonth}
+            onOpenMonth={(monthIndex) => openWeek(monthIndex)}
           />
           </View>
         ) : (
@@ -280,7 +288,7 @@ export default function MonthOverviewScreen({ navigation, route }) {
               stageY.current = e.nativeEvent.layout.y;
             }}
           >
-          <SpineStage>
+          <SpineStage canvasWidth={openMonthIndex != null ? 1100 : 0}>
             <View style={styles.spine} />
             {months.map((m, index) => (
               <SpineKindBlock
@@ -289,13 +297,17 @@ export default function MonthOverviewScreen({ navigation, route }) {
                 label={m.short}
                 current={startYear === now.getFullYear() && m.month === now.getMonth()}
                 bubbles={m.bubbles}
+                dayBubbles={m.dayBubbles}
+                dayCount={m.daysInMonth}
                 blockIndex={index}
                 glowKey={glowKey}
                 boxedLabel
+                expanded={openMonthIndex === m.month}
                 onLayout={(e) => {
                   blockY.current[m.month] = e.nativeEvent.layout.y;
                 }}
-                onOpenLabel={() => openMonth(m.month)}
+                onOpenLabel={() => toggleMonth(m.month)}
+                onOpenDay={(day) => openWeek(m.month, day)}
                 onOpenBubble={(bubble) => openBubble(m, bubble)}
               />
             ))}

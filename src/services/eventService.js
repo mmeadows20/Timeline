@@ -1352,11 +1352,13 @@ export function getMonthBubbleSummaries(events, year, filter) {
     bubbles: [],
   }));
   const bucketsByMonth = Array.from({ length: 12 }, () => ({}));
+  const dayBuckets = Array.from({ length: 12 }, () => ({}));
   (events || []).forEach((event) => {
     const d = new Date(event.date);
     if (Number.isNaN(d.getTime()) || d.getFullYear() !== year) return;
     if (filter && !eventMatchesBubbleFilter(event, filter)) return;
     const m = d.getMonth();
+    const day = d.getDate();
     months[m].count += 1;
     const meta = classifyYearBubbleKind(event);
     const buckets = bucketsByMonth[m];
@@ -1370,10 +1372,24 @@ export function getMonthBubbleSummaries(events, year, filter) {
       };
     }
     buckets[meta.kind].count += 1;
+    const dayKey = `${day}:${meta.kind}`;
+    if (!dayBuckets[m][dayKey]) {
+      dayBuckets[m][dayKey] = {
+        kind: meta.kind,
+        label: meta.label,
+        color: meta.color,
+        filter: meta.filter,
+        day,
+        count: 0,
+      };
+    }
+    dayBuckets[m][dayKey].count += 1;
   });
   return months.map((row, i) => ({
     ...row,
+    daysInMonth: new Date(year, i + 1, 0).getDate(),
     bubbles: sortKindBubbles(bucketsByMonth[i]),
+    dayBubbles: Object.values(dayBuckets[i]).sort((a, b) => a.day - b.day || b.count - a.count),
   }));
 }
 
