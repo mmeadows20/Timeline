@@ -407,6 +407,233 @@ app.patch('/events/:id', wrap(async (req, res) => {
   res.json(present({ ...snap.data(), ...update }, snap.id));
 }));
 
+// ---------- Word to Int (ported verbatim from src/services/wordToIntService.js; keep in sync) ----------
+
+function lettersOnly(text) {
+  return (text || '').toUpperCase().replace(/[^A-Z]/g, '');
+}
+function ordinalValue(ch) {
+  return ch.charCodeAt(0) - 64; // A=1 ... Z=26
+}
+function pythagoreanValue(ch) {
+  const n = ordinalValue(ch);
+  return ((n - 1) % 9) + 1; // A=1 ... I=9, J=1 ...
+}
+function reverseOrdinalValue(ch) {
+  return 27 - ordinalValue(ch); // A=26 ... Z=1
+}
+function reduceNumber(n) {
+  let value = Math.abs(Number(n));
+  const steps = [value];
+  while (value > 9 && value !== 11 && value !== 22 && value !== 33) {
+    value = String(value).split('').reduce((sum, d) => sum + Number(d), 0);
+    steps.push(value);
+  }
+  return { value, steps };
+}
+function legalReducedValue(n) {
+  return (n >= 1 && n <= 9) || n === 11 || n === 22 || n === 33;
+}
+/** Java String.hashCode on the trimmed original phrase. */
+function javaHashCode(text) {
+  const s = String(text ?? '');
+  let hash = 0;
+  for (let i = 0; i < s.length; i += 1) hash = (Math.imul(31, hash) + s.charCodeAt(i)) | 0;
+  return hash;
+}
+function convertPhrase(phrase) {
+  const raw = (phrase || '').trim();
+  const letters = lettersOnly(raw);
+  const breakdown = letters.split('').map((ch) => ({
+    letter: ch,
+    ordinal: ordinalValue(ch),
+    pythagorean: pythagoreanValue(ch),
+    reverse: reverseOrdinalValue(ch),
+  }));
+  const ordinal = breakdown.reduce((s, b) => s + b.ordinal, 0);
+  const pythagorean = breakdown.reduce((s, b) => s + b.pythagorean, 0);
+  const reverse = breakdown.reduce((s, b) => s + b.reverse, 0);
+  return {
+    phrase: raw,
+    letters,
+    letterCount: letters.length,
+    wordCount: raw ? raw.split(/\s+/).filter(Boolean).length : 0,
+    breakdown,
+    ordinal,
+    pythagorean,
+    reverse,
+    hashCode: javaHashCode(raw),
+    reducedOrdinal: reduceNumber(ordinal),
+    reducedPythagorean: reduceNumber(pythagorean),
+    reducedReverse: reduceNumber(reverse),
+  };
+}
+function phraseKey(phrase) {
+  return String(phrase || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+function findSavedPhrase(list, phrase) {
+  const key = phraseKey(phrase);
+  if (!key) return null;
+  const letters = key.replace(/[^a-z]/g, '');
+  return list.find((item) => {
+    const itemKey = phraseKey(item?.phrase);
+    if (itemKey === key) return true;
+    const itemLetters = itemKey.replace(/[^a-z]/g, '');
+    return !!(letters && itemLetters === letters);
+  }) || null;
+}
+function asNumber(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'object') {
+    if (value.value != null && !Number.isNaN(Number(value.value))) return Number(value.value);
+    return null;
+  }
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
+}
+function entryHashCode(entry) {
+  if (entry.hashCode != null && !Number.isNaN(Number(entry.hashCode))) return Number(entry.hashCode);
+  return javaHashCode(entry.phrase || '');
+}
+function hashHit(entry, n) {
+  const hash = entryHashCode(entry);
+  return hash === n || (hash != null && Math.abs(hash) === Math.abs(n));
+}
+/** Same matching as the app's findPhrasesForNumber. */
+function wordHits(entry, n, method, reducedTo) {
+  if (method === 'ordinal') return entry.ordinal === n ? ['ordinal'] : [];
+  if (method === 'pythagorean') return entry.pythagorean === n ? ['pythagorean'] : [];
+  if (method === 'reverse') return entry.reverse === n ? ['reverse'] : [];
+  if (method === 'reduced') return asNumber(entry.reduced) === reducedTo ? ['reduced'] : [];
+  if (method === 'hashcode') return hashHit(entry, n) ? ['hashcode'] : [];
+  const hits = [];
+  if (entry.ordinal === n) hits.push('ordinal');
+  if (entry.pythagorean === n) hits.push('pythagorean');
+  if (entry.reverse === n) hits.push('reverse');
+  if (legalReducedValue(n) && asNumber(entry.reduced) === n) hits.push('reduced');
+  if (hashHit(entry, n)) hits.push('hashcode');
+  return hits;
+}
+
+const CIPHER_ALIASES = {
+  ordinal: 'ordinal', englishordinal: 'ordinal', simple: 'ordinal', englishsimple: 'ordinal',
+  pythagorean: 'pythagorean', fullreduction: 'pythagorean', englishfullreduction: 'pythagorean',
+  reverse: 'reverse', reverseordinal: 'reverse', englishreverse: 'reverse', englishreverseordinal: 'reverse',
+  reduced: 'reduced', reducedordinal: 'reduced',
+  hashcode: 'hashcode', javahashcode: 'hashcode',
+  all: 'all',
+};
+function parseCipher(value) {
+  if (value === undefined || value === '') return 'ordinal';
+  const m = CIPHER_ALIASES[String(value).toLowerCase().replace(/[^a-z]/g, '')];
+  if (!m) throw new HttpError(400, 'cipher must be one of: ordinal (English Ordinal), pythagorean (Full Reduction), reverse, reduced, hashcode, all');
+  return m;
+}
+
+function wordText(body) {
+  const text = String((body && (body.text ?? body.phrase)) || '').trim();
+  if (!text) throw new HttpError(400, 'text is required');
+  if (text.length > 500) throw new HttpError(400, 'text must be 500 characters or fewer');
+  return text;
+}
+function wordValues(r) {
+  return {
+    phrase: r.phrase,
+    letters: r.letters,
+    letterCount: r.letterCount,
+    wordCount: r.wordCount,
+    ordinal: r.ordinal,
+    pythagorean: r.pythagorean,
+    reverse: r.reverse,
+    reduced: r.reducedOrdinal.value,
+    reducedSteps: r.reducedOrdinal.steps,
+    reducedPythagorean: r.reducedPythagorean.value,
+    reducedReverse: r.reducedReverse.value,
+    hashCode: r.hashCode,
+    breakdown: r.breakdown,
+  };
+}
+const wordsCol = (uid) => db.collection('users').doc(uid).collection('wordNumbers');
+async function allWords(uid) {
+  const snap = await wordsCol(uid).limit(5000).get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// POST /words/calc {text} -> values, no write
+app.post('/words/calc', wrap(async (req, res) => {
+  const r = convertPhrase(wordText(req.body));
+  if (!r.letters) throw new HttpError(400, 'text has no letters A-Z');
+  const list = await allWords(req.uid);
+  const saved = findSavedPhrase(list, r.phrase);
+  res.json({ values: wordValues(r), saved: saved || null });
+}));
+
+// POST /words {text, notes?, preferred?} -> saves in the app's wordNumbers shape
+app.post('/words', wrap(async (req, res) => {
+  const body = req.body || {};
+  const r = convertPhrase(wordText(body));
+  if (!r.letters) throw new HttpError(400, 'text has no letters A-Z');
+  const list = await allWords(req.uid);
+  const existing = findSavedPhrase(list, r.phrase);
+  if (existing) return res.json({ existing: true, word: existing, values: wordValues(convertPhrase(existing.phrase)) });
+  let preferred = 'ordinal';
+  if (body.preferred !== undefined) {
+    preferred = parseCipher(body.preferred);
+    if (preferred === 'all') throw new HttpError(400, 'preferred cannot be all');
+  }
+  const now = new Date().toISOString();
+  const word = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    phrase: r.phrase,
+    notes: String(body.notes || '').trim().slice(0, 5000),
+    preferred,
+    ordinal: r.ordinal,
+    pythagorean: r.pythagorean,
+    reverse: r.reverse,
+    reduced: r.reducedOrdinal.value,
+    hashCode: r.hashCode,
+    letterCount: r.letterCount,
+    createdAt: now,
+    updatedAt: now,
+    ownerUid: req.uid,
+    addedBy: 'bot',
+  };
+  await wordsCol(req.uid).doc(word.id).set(word);
+  res.status(201).json({ existing: false, word, values: wordValues(r) });
+}));
+
+// GET /words?cipher=&value=&limit=  |  GET /words?q=&limit=  |  GET /words (newest first)
+app.get('/words', wrap(async (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), MAX_LIST);
+  const list = await allWords(req.uid);
+  const total = list.length;
+  const rawValue = req.query.value;
+  const q = String(req.query.q || '').trim();
+  if (rawValue !== undefined && String(rawValue).trim() !== '') {
+    const n = Number(String(rawValue).trim());
+    if (Number.isNaN(n)) throw new HttpError(400, 'value must be a number');
+    const cipher = parseCipher(req.query.cipher);
+    const reducedTo = cipher === 'reduced' ? reduceNumber(n).value : null;
+    const exclude = String(req.query.exclude || '').trim();
+    const rows = [];
+    list.forEach((entry) => {
+      if (exclude && findSavedPhrase([entry], exclude)) return;
+      const hits = wordHits(entry, n, cipher, reducedTo);
+      if (hits.length) rows.push({ ...entry, matchOn: hits });
+    });
+    rows.sort((a, b) => phraseKey(a.phrase).localeCompare(phraseKey(b.phrase))
+      || String(a.phrase || '').localeCompare(String(b.phrase || '')));
+    return res.json({ cipher, value: n, reducedTo: reducedTo ?? undefined, total, count: Math.min(rows.length, limit), words: rows.slice(0, limit) });
+  }
+  let rows = list;
+  if (q) {
+    const key = phraseKey(q);
+    rows = list.filter((e) => phraseKey(e.phrase).includes(key) || String(e.notes || '').toLowerCase().includes(key));
+  }
+  rows.sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+  res.json({ q: q || undefined, total, count: Math.min(rows.length, limit), words: rows.slice(0, limit) });
+}));
+
 app.use((_req, res) => res.status(404).json({ error: 'Unknown endpoint' }));
 
 // cpu: 1 is required for concurrency > 1 (fractional CPU forces concurrency 1,

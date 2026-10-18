@@ -83,6 +83,40 @@ Or attach the photo in the same call with `imageBase64` (+ `contentType`).
 Body: any of the optional fields above. `id`, `ownerUid`, `addedBy`, `createdAt` cannot be changed. Sets `updatedAt`.
 `200` → the updated event + links.
 
+## Word to Int
+Saved words live at `users/{uid}/wordNumbers/{id}`, the same docs the app's Word to Int screen reads and writes. The numbers are worked out exactly as the app does it (the code is ported from `src/services/wordToIntService.js`, so keep the two in sync).
+
+**Rules:** the text is trimmed first. Upper and lower case count the same, and only the letters A–Z count. Spaces, punctuation, digits and accented letters are all ignored, so `É` adds nothing.
+| cipher id (aliases) | rule |
+|---|---|
+| `ordinal` (`English Ordinal`) | A=1 … Z=26, summed |
+| `pythagorean` (`Full Reduction`) | A=1 … I=9, J=1 … R=9, S=1 … Z=8 (`((n-1)%9)+1`), summed |
+| `reverse` (`Reverse Ordinal`) | A=26 … Z=1, summed |
+| `reduced` | ordinal sum digit-summed until it is 1–9, or stops at master number 11, 22 or 33 |
+| `hashcode` | Java `String.hashCode` of the trimmed text (case and spaces count here), 32-bit signed |
+
+**Saved doc shape** (the same as the app's, plus `addedBy`): `{ id: "<ms>-<6 base36>", phrase, notes, preferred: "ordinal", ordinal, pythagorean, reverse, reduced, hashCode, letterCount, createdAt, updatedAt, ownerUid, addedBy: "bot" }`.
+Duplicates are matched the way the app matches them: the same text ignoring case and repeated spaces, or the same letters A–Z.
+
+### `POST /words/calc { "text" }`
+This writes nothing.
+`200` → `{ values: { phrase, letters, letterCount, wordCount, ordinal, pythagorean, reverse, reduced, reducedSteps, reducedPythagorean, reducedReverse, hashCode, breakdown: [{letter, ordinal, pythagorean, reverse}] }, saved: <doc or null> }`.
+`400` if the text has no letters A–Z.
+
+### `POST /words { "text", "notes"?, "preferred"? }`
+`201` → `{ existing: false, word, values }`. If the word is already saved: `200` → `{ existing: true, word: <saved doc>, values }`, and nothing is written.
+
+### `GET /words?cipher=&value=&exclude=&limit=`
+This returns the saved words that have that value.
+- `cipher` is any id or alias from the table, default `ordinal`. `all` matches any cipher, the same as the app's "All" lookup. `reduced` reduces `value` first.
+- `exclude` is optional text for a word to leave out, e.g. the word just looked up.
+
+`200` → `{ cipher, value, reducedTo?, total, count, words: [ doc + matchOn: [cipher ids] ] }`, sorted A–Z.
+
+### `GET /words?q=&limit=`
+This searches the phrase and notes text, ignoring case. Leave out `q` to list every word, newest first. `200` → `{ q?, total, count, words }`.
+Default `limit` is 50, max 200.
+
 ## Key management (app only)
 These use `Authorization: Bearer <Firebase ID token>` of the signed-in app user, not a bot key.
 - `POST /keys/create { label }` → `201 { key, hash, label }`. Key = `tl_` + 32 random bytes (base64url), made on the server; only its SHA-256 is stored. Max 10 active keys.
