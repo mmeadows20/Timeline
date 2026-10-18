@@ -21,7 +21,17 @@ const FOOD_STATUSES = [
   { id: 'eaten', label: 'Eaten' },
 ];
 
-function buildFoodTitle(foodStatus, foodItems) {
+const MEAL_KITS = [
+  { id: '', label: 'Not a box' },
+  { id: 'hellofresh', label: 'HelloFresh' },
+  { id: 'gousto', label: 'Gousto' },
+  { id: 'mindful', label: 'Mindful Chef' },
+  { id: 'other', label: 'Other box' },
+];
+
+function buildFoodTitle(foodStatus, foodItems, recipeName) {
+  const recipe = String(recipeName || '').trim();
+  if (recipe) return recipe;
   const items = String(foodItems || '').trim().replace(/\s+/g, ' ');
   const statusLabel = foodStatus === 'planned' ? 'Planned' : 'Eaten';
   if (!items) return `Food (${statusLabel.toLowerCase()})`;
@@ -50,6 +60,14 @@ export default function AddFoodScreen({ navigation, route }) {
       : 'eaten'
   );
   const [imageUri, setImageUri] = useState(existing?.imageUri || '');
+  const [mealKit, setMealKit] = useState(existing?.mealKit || '');
+  const [recipeName, setRecipeName] = useState(existing?.recipeName || '');
+  const [cardNumber, setCardNumber] = useState(existing?.cardNumber || '');
+  const [cookMinutes, setCookMinutes] = useState(
+    existing?.cookMinutes != null ? String(existing.cookMinutes) : ''
+  );
+  const [mealTags, setMealTags] = useState(existing?.mealTags || '');
+  const [recipeUrl, setRecipeUrl] = useState(existing?.recipeUrl || '');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
@@ -78,8 +96,8 @@ export default function AddFoodScreen({ navigation, route }) {
     if (saving || deleting) return;
     setSaveNotice('');
     const items = foodItems.trim();
-    if (!items && !imageUri) {
-      notify('Add something', 'Enter food items or add a photo.');
+    if (!items && !imageUri && !recipeName.trim()) {
+      notify('Add something', 'Enter food items, a recipe name, or add a photo.');
       return;
     }
     const parsed = new Date(date);
@@ -90,17 +108,23 @@ export default function AddFoodScreen({ navigation, route }) {
 
     setSaving(true);
     try {
-      const title = buildFoodTitle(foodStatus, items);
+      const title = buildFoodTitle(foodStatus, items, recipeName);
       await saveEvent({
         id: existing?.id,
         title,
-        description: items || '',
+        description: items || recipeName.trim() || '',
         date: parsed.toISOString(),
         category: 'other',
         source: 'food',
         foodStatus,
         foodItems: items || undefined,
         imageUri: imageUri || undefined,
+        mealKit: mealKit || undefined,
+        recipeName: recipeName.trim() || undefined,
+        cardNumber: cardNumber.trim() || undefined,
+        cookMinutes: cookMinutes.trim() || undefined,
+        mealTags: mealTags.trim() || undefined,
+        recipeUrl: recipeUrl.trim() || undefined,
         nextAction: 'none',
         shareId: existing?.shareId,
         isShared: existing?.isShared,
@@ -156,6 +180,9 @@ export default function AddFoodScreen({ navigation, route }) {
         <Text style={styles.intro}>
           Photo-heavy meal note on your Timeline — not a calorie tracker.
         </Text>
+        <TouchableOpacity onPress={() => navigation.navigate('MealSkyline')}>
+          <Text style={styles.skylineLink}>Meal skyline · five HelloFresh cards open the map</Text>
+        </TouchableOpacity>
 
         <ImageAttachField
           label="Photo"
@@ -194,6 +221,68 @@ export default function AddFoodScreen({ navigation, route }) {
           })}
         </View>
 
+        <Text style={styles.label}>Meal-kit card</Text>
+        <View style={styles.row}>
+          {MEAL_KITS.map((kit) => {
+            const on = mealKit === kit.id;
+            return (
+              <TouchableOpacity
+                key={kit.id || 'none'}
+                style={[styles.chip, on && styles.chipOn]}
+                onPress={() => setMealKit(kit.id)}
+              >
+                <Text style={[styles.chipText, on && styles.chipOnText]}>{kit.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {mealKit ? (
+          <>
+            <Text style={styles.label}>Recipe name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Name on the card"
+              placeholderTextColor="#64748b"
+              value={recipeName}
+              onChangeText={setRecipeName}
+            />
+            <Text style={styles.label}>Card number</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 42"
+              placeholderTextColor="#64748b"
+              value={cardNumber}
+              onChangeText={setCardNumber}
+            />
+            <Text style={styles.label}>Cooking time (minutes)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 25"
+              placeholderTextColor="#64748b"
+              keyboardType="number-pad"
+              value={cookMinutes}
+              onChangeText={setCookMinutes}
+            />
+            <Text style={styles.label}>Tags</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="High Protein, Veggie"
+              placeholderTextColor="#64748b"
+              value={mealTags}
+              onChangeText={setMealTags}
+            />
+            <Text style={styles.label}>Recipe link</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="https://"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+              value={recipeUrl}
+              onChangeText={setRecipeUrl}
+            />
+          </>
+        ) : null}
+
         {!!saveNotice && <Text style={styles.notice}>{saveNotice}</Text>}
 
         <TouchableOpacity
@@ -226,6 +315,7 @@ function screenStyles(c) {
   content: { padding: 20, paddingBottom: 40 },
   heading: { color: c.text, fontSize: 22, fontWeight: '700', marginBottom: 6 },
   intro: { color: c.faint, fontSize: 13, lineHeight: 18, marginBottom: 8 },
+  skylineLink: { color: '#e7a06a', fontSize: 14, fontWeight: '700', marginBottom: 12 },
   label: { color: c.faint, fontSize: 14, marginTop: 16, marginBottom: 8 },
   input: {
     backgroundColor: c.card,

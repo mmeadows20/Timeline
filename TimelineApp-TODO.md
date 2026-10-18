@@ -119,7 +119,8 @@ Product map:
 - [x] **Cupboard** (preview bought list / use in a meal). Expo cupboard still thin vs preview.
 - [ ] **Next — Food extras: meal-kit recipes** (18 Oct 2026, from Timeline Bot). Optional add-on in Food, not part of everyday food logging. First box: HelloFresh. Same shape later for Gousto, Mindful Chef, and other boxes.
   One photo of a recipe card fills the event: recipe name, card number, cooking time, tags (e.g. High Protein), and the ingredient list. Link out to that recipe on the box site. Saved as a food event.
-  **Free:** photo → filled recipe card on the timeline.
+  **Free:** photo → filled recipe card on the timeline. Card fields are on Add food now (box, recipe name, card number, minutes, tags, link). Reading those off the photo automatically is still to do.
+  **The map (Meal skyline, build 180):** not a node graph and not the year line. Days run left to right, time of day is the height, and the card photo sits on that point. A repeat of the same recipe gets a green ring and a count. It stays closed until **5 HelloFresh cards** each have a photo and a recipe name or ingredient list, so the credits spent on this extra buy a picture rather than an empty chart. Open it from Add food. Credits shop item “Meal skyline” (4). Testers are not charged while credits are paused.
   **Paid (credits), once the free card works:**
   - **Cooked it again?** spot the same recipe and keep a count (e.g. made 3 times).
   - **Ratings and swaps:** would make again, or a note such as “used yoghurt instead of soured cream”.

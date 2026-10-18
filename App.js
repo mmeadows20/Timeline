@@ -23,6 +23,7 @@ import AddEventScreen from './src/screens/AddEventScreen';
 import AddPoemScreen from './src/screens/AddPoemScreen';
 import AddSingingScreen from './src/screens/AddSingingScreen';
 import AddFoodScreen from './src/screens/AddFoodScreen';
+import MealSkylineScreen from './src/screens/MealSkylineScreen';
 import AddWashLoadScreen from './src/screens/AddWashLoadScreen';
 import PickFromGmailScreen from './src/screens/PickFromGmailScreen';
 import AddWatchedScreen from './src/screens/AddWatchedScreen';
@@ -428,6 +429,12 @@ function AppShell() {
                 options={({ route }) => ({
                   title: route.params?.event ? 'Edit Food' : 'Add Food',
                 })}
+              />
+
+              <Stack.Screen
+                name="MealSkyline"
+                component={MealSkylineScreen}
+                options={{ title: 'Meal skyline' }}
               />
 
               <Stack.Screen

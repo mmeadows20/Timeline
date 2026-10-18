@@ -68,6 +68,11 @@ export const SHARE_WORDS_PERK = 'shareWords';
 /** Charged each time the graph's nodes, notes and positions are sent. A picture of the graph is free. */
 export const GRAPH_SHARE_DATA_COST = 2;
 
+/** Meal skyline: the visual payoff of the meal-kit extra. */
+export const MEAL_SKYLINE_COST = 4;
+export const MEAL_SKYLINE_PERK = 'mealSkyline';
+export const MEAL_SKYLINE_MIN = 5;
+
 /** Same SKUs as Mafia PurchasesActivity — consumable Play packs. */
 export const CREDIT_PACKS = [
   { id: '1_credits', sku: '1_credits', credits: 1, priceLabel: 'Play Store', blurb: '1 credit' },
@@ -142,6 +147,13 @@ export const SHOP_ITEMS = [
     blurb: 'Word counts, line length, title numbers and a pattern graph from your poem events.',
     cost: 4,
     perk: 'poemInsights',
+  },
+  {
+    id: 'mealSkyline',
+    title: 'Meal skyline',
+    blurb: 'A day-and-time map of HelloFresh cards. Opens once five cards have a photo and a recipe name. Not a node graph.',
+    cost: 4,
+    perk: 'mealSkyline',
   },
 ];
 
