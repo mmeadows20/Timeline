@@ -19,6 +19,7 @@ import { useTheme } from '../themeContext';
 import {
   REMAKE_PERK_CREDITS,
   SHOPS,
+  UBER_STORES,
   buildLines,
   displayName,
   formatPence,
@@ -31,6 +32,8 @@ import {
   saveRemakeState,
   shopSearchUrl,
   splitIngredientList,
+  uberFindStoreUrl,
+  uberStoreUrl,
   visibleRecipes,
 } from '../services/remakeList';
 
@@ -46,6 +49,8 @@ export default function ShoppingListScreen() {
   const [itemDrafts, setItemDrafts] = useState({});
   const [hfLink, setHfLink] = useState('');
   const [readingLink, setReadingLink] = useState(false);
+  const [uberDraft, setUberDraft] = useState('');
+  const [priceDrafts, setPriceDrafts] = useState({});
   const [swapFor, setSwapFor] = useState(null);
   const [swapDraft, setSwapDraft] = useState('');
   const [group, setGroup] = useState('meal');
@@ -123,7 +128,8 @@ export default function ShoppingListScreen() {
   }
 
   function setPrice(line, raw) {
-    persist({ ...state, prices: { ...state.prices, [line.id]: poundsToPence(raw) } });
+    const checked = { ...(state.checked || {}), [line.id]: false };
+    persist({ ...state, prices: { ...state.prices, [line.id]: poundsToPence(raw) }, checked });
   }
 
   function setGot(line) {
@@ -247,10 +253,76 @@ export default function ShoppingListScreen() {
 
   function openNext() {
     const next = lines.find((line) => !line.got && !line.dropped);
-    const query = next ? `${shop === 'uber' ? `${shopLabel} ` : ''}${displayName(next)}` : shopLabel;
-    Linking.openURL(shopSearchUrl(shop, query)).catch(() => {
+    const query = next ? displayName(next) : shopLabel;
+    if (shop === 'uber' && !uberStoreUrl(state.uberStore && state.uberStore.url)) {
+      const message = 'Pick the Uber Eats store first, then paste its page link. Item search stays in that shop.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Choose a store', message);
+      return;
+    }
+    const url = shopSearchUrl(shop, query, state.uberStore);
+    if (!url) return;
+    Linking.openURL(url).catch(() => {
       Alert.alert('Could not open the shop', 'Copy the list and open the shop yourself.');
     });
+  }
+
+  function saveUberStore() {
+    const url = uberStoreUrl(uberDraft);
+    if (!url) {
+      const message = 'Paste the store page itself, the one with /store/ in the link. A search page still jumps between shops.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Store link', message);
+      return;
+    }
+    persist({ ...state, shop: 'uber', uberStore: { label: (state.uberStore && state.uberStore.label) || 'Saved store', url } });
+  }
+
+  function collectPrices() {
+    const prices = { ...(state.prices || {}) };
+    Object.keys(priceDrafts).forEach((id) => {
+      const raw = priceDrafts[id];
+      if (raw == null || String(raw).trim() === '') return;
+      prices[id] = poundsToPence(raw);
+    });
+    return prices;
+  }
+
+  function savePrices(markChecked) {
+    const prices = collectPrices();
+    const checked = { ...(state.checked || {}) };
+    let counted = 0;
+    let total = 0;
+    let waiting = 0;
+    lines.forEach((line) => {
+      if (line.dropped) return;
+      const typed = priceDrafts[line.id] != null && String(priceDrafts[line.id]).trim() !== '';
+      if (prices[line.id] == null) {
+        waiting += 1;
+        if (markChecked) checked[line.id] = false;
+        return;
+      }
+      if (markChecked) {
+        checked[line.id] = true;
+        counted += 1;
+        total += prices[line.id];
+      } else if (typed) {
+        checked[line.id] = false;
+      }
+    });
+    persist({ ...state, prices, checked });
+    setPriceDrafts({});
+    const message = markChecked
+      ? waiting
+        ? `${formatPence(total)} from ${counted} checked price${counted === 1 ? '' : 's'}. ${waiting} still estimated and left out of the total.`
+        : `${formatPence(total)} from ${counted} item${counted === 1 ? '' : 's'}. Those prices are no longer estimates.`
+      : 'Prices saved on this device. You can come back and shop later.';
+    if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+    else Alert.alert(markChecked ? 'Prices checked' : 'Saved', message);
+  }
+
+  function markPricesChecked() {
+    savePrices(true);
   }
 
   const basket = [];
@@ -395,8 +467,9 @@ export default function ShoppingListScreen() {
         <View style={styles.card}>
           <Text style={styles.label}>Meal name</Text>
           <TextInput style={styles.input} value={draftName} onChangeText={setDraftName} placeholder="Lemon chicken tray" placeholderTextColor={colors.faint} />
-          <Text style={styles.label}>Ingredients, commas or new lines</Text>
-          <TextInput style={[styles.input, styles.items]} value={draftItems} onChangeText={setDraftItems} placeholder="Chicken breast, lemon, rice" placeholderTextColor={colors.faint} multiline />
+          <Text style={styles.label}>Ingredients, one per line</Text>
+          <TextInput style={[styles.input, styles.items]} value={draftItems} onChangeText={setDraftItems} placeholder={'Chicken breast\nLemon\nRice'} placeholderTextColor={colors.faint} multiline />
+          <Text style={styles.intro}>Each new line is one ingredient. A comma stays on that line.</Text>
           <View style={styles.row}>
             <TouchableOpacity style={[styles.chip, !draftBox && styles.chipOn]} onPress={() => setDraftBox(false)}>
               <Text style={[styles.chipText, !draftBox && styles.chipOnText]}>Just ingredients</Text>
@@ -448,6 +521,51 @@ export default function ShoppingListScreen() {
         ))}
       </View>
 
+      {shop === 'uber' ? (
+        <View style={styles.card}>
+          <Text style={styles.label}>Uber Eats store</Text>
+          <Text style={styles.intro}>Choose the shop first. The next item is searched inside that store, not across every shop.</Text>
+          <View style={styles.row}>
+            {UBER_STORES.map((store) => {
+              const on = (state.uberStore && state.uberStore.label) === store.label;
+              return (
+                <TouchableOpacity
+                  key={store.id}
+                  style={[styles.chip, on && styles.chipOn]}
+                  onPress={() => persist({ ...state, shop: 'uber', uberStore: { label: store.label, url: state.uberStore && state.uberStore.label === store.label ? state.uberStore.url : '' } })}
+                >
+                  <Text style={[styles.chipText, on && styles.chipOnText]}>{store.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <TouchableOpacity
+            style={styles.smallBtn}
+            onPress={() => Linking.openURL(uberFindStoreUrl((state.uberStore && state.uberStore.label) || 'Tesco Express'))}
+          >
+            <Text style={styles.smallBtnText}>Find {(state.uberStore && state.uberStore.label) || 'Tesco Express'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.label}>Paste that store’s page</Text>
+          <TextInput
+            style={styles.input}
+            value={uberDraft}
+            onChangeText={setUberDraft}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="https://www.ubereats.com/gb/store/…"
+            placeholderTextColor={colors.faint}
+          />
+          <TouchableOpacity style={styles.smallBtn} onPress={saveUberStore}>
+            <Text style={styles.smallBtnText}>Save this store</Text>
+          </TouchableOpacity>
+          <Text style={styles.intro}>
+            {uberStoreUrl(state.uberStore && state.uberStore.url)
+              ? `Item search stays in ${state.uberStore.label || 'this store'}.`
+              : 'Item search waits until the store page is saved. A general Uber Eats search jumps to a different shop each time.'}
+          </Text>
+        </View>
+      ) : null}
+
       {lines.length === 0 ? <Text style={styles.intro}>Turn a meal on to build the list.</Text> : null}
 
       {group === 'meal'
@@ -471,6 +589,8 @@ export default function ShoppingListScreen() {
                   onGot={() => setGot(line)}
                   onDrop={() => setDropped(line)}
                   onPrice={(raw) => setPrice(line, raw)}
+                  priceText={priceDrafts[line.id] != null ? priceDrafts[line.id] : (line.guidePence / 100).toFixed(2)}
+                  onPriceDraft={(raw) => setPriceDrafts((prev) => ({ ...prev, [line.id]: raw }))}
                 />
               ))}
             </View>
@@ -483,6 +603,46 @@ export default function ShoppingListScreen() {
             </View>
           ))}
 
+      <TouchableOpacity style={styles.primary} onPress={markPricesChecked}>
+        <Text style={styles.primaryText}>Prices checked, no longer estimated</Text>
+      </TouchableOpacity>
+      <View style={styles.summary}>
+        <Text style={styles.summaryLabel}>Checked total</Text>
+        {lines.some((line) => !line.dropped && line.checked) ? (
+          <>
+            {recipes.filter((recipe) => selectedOn(recipe.id)).map((recipe) => {
+              const mealLines = lines.filter((line) => line.mealId === recipe.id && !line.dropped && line.checked);
+              if (!mealLines.length) return null;
+              const mealTotal = mealLines.reduce((sum, line) => sum + lineCost(line), 0);
+              return (
+                <View key={recipe.id}>
+                  <Text style={styles.mealName}>{recipe.name}</Text>
+                  {mealLines.map((line) => (
+                    <Text key={line.id} style={styles.meta}>
+                      {displayName(line)} · {formatPence(line.guidePence)}
+                    </Text>
+                  ))}
+                  <Text style={styles.intro}>{formatPence(mealTotal)} for this meal</Text>
+                </View>
+              );
+            })}
+            <Text style={styles.summaryValue}>
+              {formatPence(lines.filter((line) => !line.dropped && line.checked).reduce((sum, line) => sum + lineCost(line), 0))} total
+            </Text>
+            <Text style={styles.intro}>These are the prices you entered, not estimates.</Text>
+          </>
+        ) : (
+          <Text style={styles.intro}>Type a price on each item, then press Prices checked.</Text>
+        )}
+        {lines.some((line) => !line.dropped && !line.checked) ? (
+          <Text style={styles.intro}>
+            {lines.filter((line) => !line.dropped && !line.checked).length} still estimated and not in this total.
+          </Text>
+        ) : null}
+      </View>
+      <TouchableOpacity style={styles.secondary} onPress={() => savePrices(false)}>
+        <Text style={styles.secondaryText}>Save prices for later</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.primary} onPress={openNext}>
         <Ionicons name="storefront-outline" size={18} color="#fff" />
         <Text style={styles.primaryText}>Open next item in {shopLabel}</Text>
@@ -515,6 +675,8 @@ function LineCard({
   onGot,
   onDrop,
   onPrice,
+  priceText,
+  onPriceDraft,
 }) {
   return (
     <View style={[styles.card, line.dropped && { opacity: 0.6 }]}>
@@ -529,15 +691,15 @@ function LineCard({
           </Text>
           <Text style={styles.meta}>
             {line.qty} · for {line.mealName}
-            {line.guessed ? ' · price is a guess' : ''}
+            {line.checked ? ' · price checked' : line.entered ? ' · typed, not checked yet' : ' · estimate'}
           </Text>
         </View>
       </View>
-      <Text style={styles.label}>Guide £</Text>
+      <Text style={styles.label}>{line.checked ? 'Checked £' : 'Price £'}</Text>
       <TextInput
         style={[styles.input, { maxWidth: 140 }]}
-        defaultValue={(line.guidePence / 100).toFixed(2)}
-        key={`${line.id}-${line.guidePence}`}
+        value={priceText}
+        onChangeText={onPriceDraft}
         onEndEditing={(e) => onPrice(e.nativeEvent.text)}
         keyboardType="decimal-pad"
         placeholderTextColor={colors.faint}

@@ -248,9 +248,10 @@ export default function AddFoodScreen({ navigation, route }) {
         </Text>
 
         <Text style={styles.label}>Ingredients</Text>
+        <Text style={styles.hint}>One ingredient on each new line. A comma stays on that line and does not start another food.</Text>
         <TextInput
           style={[styles.input, styles.items]}
-          placeholder={'One food per line\nChicken thigh\nEgg noodles'}
+          placeholder={'One food on each line\nChicken thigh\nEgg noodles'}
           placeholderTextColor="#64748b"
           value={foodItems}
           onChangeText={setFoodItems}
