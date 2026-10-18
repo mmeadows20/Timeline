@@ -774,14 +774,50 @@ app.get('/events/:id/invites', wrap(async (req, res) => {
   res.json({ eventId: snap.id, shareId, invites });
 }));
 
-// DELETE /events/:id -> only bot-added events. Removes its files, pending invites, and a share nobody joined.
+// DELETE /events/:id -> bot-added events delete at once. Events the user made need a two-step confirm:
+// the first call returns 409 { needsConfirm, confirmToken, expiresAt }; repeat with ?confirm=TOKEN (single use, 5 min,
+// this event only). Removes its files, pending invites, and a share nobody joined. User deletes are audited.
+const CONFIRM_MS = 5 * 60 * 1000;
+const confirmCol = (uid) => db.collection('users').doc(uid).collection('botConfirm');
 app.delete('/events/:id', wrap(async (req, res) => {
   if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
   const ref = eventsCol(req.uid).doc(req.params.id);
   const snap = await ref.get();
   if (!snap.exists) throw new HttpError(404, 'Not found');
   const event = snap.data();
-  if (event.addedBy !== 'bot') throw new HttpError(403, 'Only events added by the bot can be deleted through the API');
+  const userMade = event.addedBy !== 'bot';
+  if (userMade) {
+    const token = String(req.query.confirm || '').trim().toUpperCase();
+    if (!token) {
+      let sharedInvites = 0;
+      if (event.shareId) {
+        const inv = await db.collection('eventInvites').where('shareId', '==', event.shareId).get();
+        sharedInvites = inv.docs.filter((d) => d.data().fromUid === req.uid).length;
+      }
+      const confirmToken = makeInviteCode(8);
+      const expiresAt = new Date(Date.now() + CONFIRM_MS).toISOString();
+      await confirmCol(req.uid).doc(sha256(confirmToken)).set({
+        eventId: snap.id, title: event.title || '', createdAt: new Date().toISOString(), expiresAt, used: false,
+      });
+      return res.status(409).json({
+        needsConfirm: true,
+        confirmToken,
+        expiresAt,
+        event: { id: snap.id, title: event.title || '', date: toIso(event.date) || null },
+        sharedInvites,
+        message: 'This event was made by the user. Ask them to confirm, then repeat DELETE with ?confirm=TOKEN within 5 minutes.',
+      });
+    }
+    const tokRef = confirmCol(req.uid).doc(sha256(token));
+    await db.runTransaction(async (tx) => {
+      const t = await tx.get(tokRef);
+      const v = t.exists ? t.data() : null;
+      if (!v || v.eventId !== snap.id) throw new HttpError(403, 'Invalid confirm token for this event');
+      if (v.used) throw new HttpError(403, 'Confirm token already used');
+      if (new Date(v.expiresAt).getTime() < Date.now()) throw new HttpError(403, 'Confirm token expired; request a new one');
+      tx.update(tokRef, { used: true, usedAt: new Date().toISOString() });
+    });
+  }
   const removed = { files: 0, invites: 0, sharedEvent: false };
   const [files] = await getStorage().bucket().getFiles({ prefix: `users/${req.uid}/events/${snap.id}/` });
   await Promise.all(files.map((f) => f.delete({ ignoreNotFound: true })));
@@ -804,7 +840,13 @@ app.delete('/events/:id', wrap(async (req, res) => {
     }
   }
   await ref.delete();
-  res.json({ deleted: snap.id, removed });
+  if (userMade) {
+    await db.collection('users').doc(req.uid).collection('botAudit').add({
+      action: 'delete-user-event', by: 'bot', uid: req.uid, eventId: snap.id, title: event.title || '',
+      date: toIso(event.date) || null, removed, at: new Date().toISOString(),
+    });
+  }
+  res.json({ deleted: snap.id, title: event.title || '', confirmed: userMade, removed });
 }));
 
 // ---------- To-dos (mirrors src/services/todoService.js; keep in sync) ----------
