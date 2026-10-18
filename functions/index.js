@@ -37,6 +37,7 @@ const KINDS = {
   event: { source: 'manual', category: 'personal' },
   poem: { source: 'hobby', category: 'hobby', hobbyType: 'poetry' },
   food: { source: 'food', category: 'other' },
+  social: { source: 'social', category: 'hobby' },
   other: { source: 'manual', category: 'other' },
 };
 
@@ -46,6 +47,7 @@ const WRITABLE = [
   'nextAction', 'hobbyType', 'collectionName', 'imageUri', 'coverImageUri',
   'photoNote', 'coverPhotoNote', 'shareCaption', 'placeName', 'foodStatus',
   'foodItems', 'emailFrom', 'botNote',
+  'socialUrl', 'socialTitle', 'socialPlatform', 'socialAction', 'socialNote', 'url',
 ];
 
 class HttpError extends Error {
@@ -116,6 +118,11 @@ function pickWritable(body) {
   ['imageUri', 'coverImageUri'].forEach((k) => {
     if (out[k] !== undefined && out[k] !== null && !/^https:\/\//i.test(String(out[k]))) {
       throw new HttpError(400, `${k} must be an https download URL from POST /photos`);
+    }
+  });
+  ['socialUrl', 'url'].forEach((k) => {
+    if (out[k] !== undefined && out[k] !== null && !/^https:\/\//i.test(String(out[k]))) {
+      throw new HttpError(400, `${k} must be an https URL`);
     }
   });
   return out;

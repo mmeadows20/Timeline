@@ -29,6 +29,8 @@ Stored at `users/{uid}/events/{id}` exactly like the app's `saveEvent()`:
 | `hobbyType` | e.g. `poetry` (Poems filter = `source: hobby` + `hobbyType: poetry`) |
 | `labels` | array of strings |
 | `location`, `placeName`, `photoNote`, `imageUri`, `coverImageUri`, `nextAction`, `foodStatus`, `foodItems`, `collectionName`, `shareCaption`, `emailFrom`, `botNote` | optional |
+| `socialUrl`, `url` | optional https URL (400 otherwise). `socialUrl` drives the "Open post" button on social events |
+| `socialTitle`, `socialPlatform` (e.g. `X`), `socialAction` (e.g. `Posted`), `socialNote` | optional strings for social media events |
 | `createdAt`, `updatedAt` | ISO strings, set by the API |
 | `ownerUid` | key owner's uid, set by the API |
 | `addedBy` | always `"bot"` on bot-created events (marker for sorting / removing) |
@@ -42,6 +44,7 @@ Responses also include `appLink: "timelineapp://event/<id>"` and `webLink: null`
 | `event` | manual | personal | |
 | `poem` | hobby | hobby | hobbyType `poetry` |
 | `food` | food | other | |
+| `social` | social | hobby | |
 | `other` | manual | other | |
 
 Explicit `source` / `category` override `kind`.
