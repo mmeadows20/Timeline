@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { getEvents } from '../services/eventService';
+import { readHelloFreshLink } from '../services/helloFreshLink';
+import { getEvents, saveEvent } from '../services/eventService';
 import { copyTextToClipboard } from '../services/shareService';
 import { useTheme } from '../themeContext';
 import {
@@ -29,6 +30,7 @@ import {
   recipeFromItems,
   saveRemakeState,
   shopSearchUrl,
+  splitIngredientList,
   visibleRecipes,
 } from '../services/remakeList';
 
@@ -41,6 +43,9 @@ export default function ShoppingListScreen() {
   const [draftName, setDraftName] = useState('');
   const [draftPaid, setDraftPaid] = useState('');
   const [draftBox, setDraftBox] = useState(false);
+  const [itemDrafts, setItemDrafts] = useState({});
+  const [hfLink, setHfLink] = useState('');
+  const [readingLink, setReadingLink] = useState(false);
   const [swapFor, setSwapFor] = useState(null);
   const [swapDraft, setSwapDraft] = useState('');
   const [group, setGroup] = useState('meal');
@@ -153,6 +158,13 @@ export default function ShoppingListScreen() {
       Alert.alert('Add a meal', 'Add a meal name and at least one ingredient.');
       return;
     }
+    if (!splitIngredientList(items).length) {
+      Alert.alert(
+        'Ingredients',
+        'Put one food on each line, or separate them with commas. A sentence is kept as a note and is not turned into shop lines.',
+      );
+      return;
+    }
     const id = `card-${Date.now()}`;
     const card = recipeFromItems(name, items, id, draftBox ? 'Your box' : 'Your list', draftBox);
     const paid = draftBox ? { ...state.paid, [id]: poundsToPence(draftPaid) } : state.paid;
@@ -168,6 +180,59 @@ export default function ShoppingListScreen() {
     setDraftItems('');
     setDraftBox(false);
     setAdding(false);
+  }
+
+  async function saveIngredients(recipe) {
+    const text = String(itemDrafts[recipe.id] || '').trim();
+    const names = splitIngredientList(text);
+    if (!names.length) {
+      const message = 'Put one food on each line, or separate them with commas. A sentence stays as a note.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Ingredients', message);
+      return;
+    }
+    const listed = names.join('\n');
+    if (recipe.eventId) {
+      try {
+        await saveEvent({ id: recipe.eventId, foodItems: listed, source: 'food' });
+        setEvents(await getEvents());
+      } catch (e) {
+        Alert.alert('Could not save', e?.message || 'The ingredients stayed on this screen only.');
+      }
+      return;
+    }
+    const card = recipeFromItems(recipe.name, listed, recipe.id, recipe.kit, recipe.isBox);
+    const extras = (state.extras || []).map((row) => (row.id === recipe.id ? { ...row, ...card } : row));
+    persist({ ...state, extras });
+  }
+
+  async function addFromHelloFresh() {
+    if (readingLink) return;
+    setReadingLink(true);
+    try {
+      const recipe = await readHelloFreshLink(hfLink);
+      const id = `hf-${Date.now()}`;
+      const card = recipeFromItems(recipe.name, recipe.ingredients.join('\n'), id, 'HelloFresh link', true);
+      if (!card.ingredients.length) {
+        throw new Error('The foods on that page could not be split into lines.');
+      }
+      const current = recipes.filter((r) => selectedOn(r.id)).map((r) => r.id);
+      persist({
+        ...state,
+        extras: [{ ...card, recipeUrl: recipe.url }, ...(state.extras || [])],
+        selected: [...current, id],
+      });
+      setHfLink('');
+      const message = `${recipe.ingredients.length} foods from the HelloFresh page, each on its own line.`;
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Ingredients read', message);
+    } catch (e) {
+      const message = e?.message || 'Try the recipe page itself.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Could not read that link', message);
+    } finally {
+      setReadingLink(false);
+    }
   }
 
   async function copyList() {
@@ -230,6 +295,36 @@ export default function ShoppingListScreen() {
             />
           </>
         ) : null}
+        {recipe.ingredients.length ? (
+          <View style={styles.row}>
+            {recipe.ingredients.map((item) => (
+              <View key={item.id} style={styles.chip}>
+                <Text style={styles.chipText}>{item.name}</Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <>
+            <Text style={styles.intro}>
+              {recipe.note
+                ? 'This is a note, so it was not split into foods.'
+                : 'No ingredient list on this meal yet.'}
+            </Text>
+            {recipe.note ? <Text style={styles.note}>{recipe.note}</Text> : null}
+            <Text style={styles.label}>Ingredients, one per line</Text>
+            <TextInput
+              style={[styles.input, styles.items]}
+              value={itemDrafts[recipe.id] || ''}
+              onChangeText={(value) => setItemDrafts((prev) => ({ ...prev, [recipe.id]: value }))}
+              placeholder={'Chicken breast\nLemon\nRice'}
+              placeholderTextColor={colors.faint}
+              multiline
+            />
+            <TouchableOpacity style={styles.smallBtn} onPress={() => saveIngredients(recipe)}>
+              <Text style={styles.smallBtnText}>Use these ingredients</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
     );
   }
@@ -240,6 +335,25 @@ export default function ShoppingListScreen() {
       <Text style={styles.intro}>
         Remake a past meal without the box. Every line stays on its own meal, so a swap in the aisle still belongs to that plate.
       </Text>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>HelloFresh recipe link</Text>
+        <TextInput
+          style={styles.input}
+          value={hfLink}
+          onChangeText={setHfLink}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="https://www.hellofresh.co.uk/recipes/…"
+          placeholderTextColor={colors.faint}
+        />
+        <TouchableOpacity style={styles.primary} onPress={addFromHelloFresh} disabled={readingLink}>
+          <Text style={styles.primaryText}>{readingLink ? 'Reading the page…' : 'Use the foods on this page'}</Text>
+        </TouchableOpacity>
+        <Text style={styles.intro}>
+          Each ingredient on that page becomes its own shop line. A meal note is not split. The cooking method stays on HelloFresh.
+        </Text>
+      </View>
 
       <View style={styles.summary}>
         <Text style={styles.summaryLabel}>Box versus the shop</Text>
@@ -482,6 +596,7 @@ function screenStyles(c) {
     row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
     rowBetween: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
     mealName: { color: c.text, fontWeight: '700', fontSize: 16 },
+    note: { color: c.text, fontSize: 13, lineHeight: 18, marginTop: 6 },
     mealHead: { color: c.text, fontWeight: '700', marginTop: 16 },
     meta: { color: c.faint, fontSize: 12, marginTop: 2 },
     struck: { textDecorationLine: 'line-through' },

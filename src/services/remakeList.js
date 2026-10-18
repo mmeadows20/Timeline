@@ -117,18 +117,70 @@ export function poundsToPence(raw) {
   return Math.round(n * 100);
 }
 
+function wordCount(text) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+/** A diary sentence, not a shopping line. */
+export function looksLikeProse(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const words = wordCount(t);
+  const commas = (t.match(/,/g) || []).length;
+  if (/[.!?]/.test(t) && words >= 6) return true;
+  if (words >= 12 && commas <= 2) return true;
+  const hits = t.match(/\b(i|i'm|im|we|it|was|were|had|have|this|that|because|after|before|felt|nice|really|just|today|yesterday)\b/gi) || [];
+  if (hits.length >= 2 && words >= 6 && commas < Math.max(2, words / 4)) return true;
+  return false;
+}
+
+/**
+ * Turn a real ingredient list into separate foods.
+ * A general note is left alone — commas in a sentence are not foods.
+ */
+export function splitIngredientList(text) {
+  let raw = String(text || '').replace(/\r/g, '').trim();
+  if (!raw) return [];
+  const labeled = raw.match(/(?:^|\n)\s*ingredients?\s*:\s*([\s\S]*)/i);
+  if (labeled) raw = labeled[1].trim();
+  else if (looksLikeProse(raw)) return [];
+
+  const parts = [];
+  const lines = raw.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (/^(note|method|steps|instructions|description)\b/i.test(line)) break;
+    const cleaned = line.replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '').trim();
+    if (!cleaned) continue;
+    if (!labeled && looksLikeProse(cleaned) && !/[,;]/.test(cleaned)) {
+      if (parts.length) break;
+      return [];
+    }
+    const bits = cleaned.split(/[,;]/).map((bit) => bit.replace(/[.]+$/, '').trim()).filter(Boolean);
+    for (const bit of bits) {
+      if (!bit || bit.length > 60 || wordCount(bit) > 8) continue;
+      if (looksLikeProse(bit)) continue;
+      parts.push(bit);
+    }
+  }
+  const seen = new Set();
+  return parts.filter((part) => {
+    const key = part.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function recipeFromItems(name, items, id, kit, isBox) {
-  const parts = String(items || '')
-    .split(/[,;\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const names = parts.length ? parts : [name || 'Ingredient'];
+  const names = splitIngredientList(items);
+  const raw = String(items || '').trim();
   return {
     id,
     name: name || 'Saved meal',
     kit: kit || 'Your card',
     isBox: !!isBox,
     paidPence: 0,
+    note: names.length ? '' : raw,
     ingredients: names.map((part, i) => {
       const g = guessGuide(part);
       return { id: `${id}-${i}`, name: part, qty: g.qty, guidePence: g.guidePence, guessed: g.guessed };
@@ -139,12 +191,22 @@ export function recipeFromItems(name, items, id, kit, isBox) {
 export function recipesFromEvents(events) {
   return (events || [])
     .filter((event) => String(event?.source || '') === 'food')
-    .filter((event) => event.foodItems || event.recipeName || event.description)
+    .filter((event) => event.foodItems || event.recipeName || event.description || event.title)
     .map((event) => {
       const name = event.recipeName || event.title || 'Saved meal';
-      const items = event.foodItems || event.description || name;
       const kit = event.mealKit ? 'Meal-kit card' : 'Saved meal';
-      const card = recipeFromItems(name, items, `food-${event.id}`, kit, !!event.mealKit);
+      const items = String(event.foodItems || '').trim();
+      const note = String(event.description || '').trim();
+      const fromItems = splitIngredientList(items);
+      const fromNote = !fromItems.length && note && note !== items ? splitIngredientList(note) : [];
+      const source = fromItems.length ? items : fromNote.length && !looksLikeProse(note) ? note : '';
+      const card = recipeFromItems(name, source, `food-${event.id}`, kit, !!event.mealKit);
+      card.eventId = event.id;
+      if (!card.ingredients.length) {
+        card.note = looksLikeProse(note) ? note : looksLikeProse(items) ? items : note && !fromNote.length ? note : '';
+      } else if (note && note !== items && looksLikeProse(note)) {
+        card.note = note;
+      }
       return card;
     });
 }

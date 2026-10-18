@@ -15,6 +15,8 @@ import ImageAttachField from '../components/ImageAttachField';
 import { auth } from '../services/firebase';
 import { useTheme } from '../themeContext';
 import DateField from '../components/DateField';
+import { looksLikeProse, splitIngredientList } from '../services/remakeList';
+import { readHelloFreshLink } from '../services/helloFreshLink';
 
 const FOOD_STATUSES = [
   { id: 'planned', label: 'Planned' },
@@ -26,6 +28,18 @@ const MEAL_KITS = [
   { id: 'hellofresh', label: 'Meal kit' },
   { id: 'other', label: 'Other box' },
 ];
+
+function initialFoodFields(existing) {
+  const items = String(existing?.foodItems || '').trim();
+  const note = String(existing?.description || '').trim();
+  const itemList = splitIngredientList(items);
+  const noteIsList = !items && splitIngredientList(note).length > 0 && !looksLikeProse(note);
+  if (itemList.length) {
+    return { ingredients: items, note: note && note !== items ? note : '' };
+  }
+  if (noteIsList) return { ingredients: note, note: '' };
+  return { ingredients: '', note: note || items };
+}
 
 function buildFoodTitle(foodStatus, foodItems, recipeName) {
   const recipe = String(recipeName || '').trim();
@@ -46,7 +60,9 @@ export default function AddFoodScreen({ navigation, route }) {
     ? String(route.params.date).slice(0, 10)
     : null;
 
-  const [foodItems, setFoodItems] = useState(existing?.foodItems || existing?.description || '');
+  const startFields = initialFoodFields(existing);
+  const [foodItems, setFoodItems] = useState(startFields.ingredients);
+  const [note, setNote] = useState(startFields.note);
   const [date, setDate] = useState(
     existing?.date
       ? existing.date.slice(0, 10)
@@ -67,6 +83,7 @@ export default function AddFoodScreen({ navigation, route }) {
   const [mealTags, setMealTags] = useState(existing?.mealTags || '');
   const [recipeUrl, setRecipeUrl] = useState(existing?.recipeUrl || '');
   const [saving, setSaving] = useState(false);
+  const [readingLink, setReadingLink] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
 
@@ -94,8 +111,9 @@ export default function AddFoodScreen({ navigation, route }) {
     if (saving || deleting) return;
     setSaveNotice('');
     const items = foodItems.trim();
-    if (!items && !imageUri && !recipeName.trim()) {
-      notify('Add something', 'Enter food items, a recipe name, or add a photo.');
+    const written = note.trim();
+    if (!items && !written && !imageUri && !recipeName.trim()) {
+      notify('Add something', 'Add ingredients, a note, a recipe name, or a photo.');
       return;
     }
     const parsed = new Date(date);
@@ -110,7 +128,7 @@ export default function AddFoodScreen({ navigation, route }) {
       await saveEvent({
         id: existing?.id,
         title,
-        description: items || recipeName.trim() || '',
+        description: written || undefined,
         date: parsed.toISOString(),
         category: 'other',
         source: 'food',
@@ -140,6 +158,26 @@ export default function AddFoodScreen({ navigation, route }) {
       notify('Error', fail);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const readLink = async () => {
+    if (readingLink) return;
+    setReadingLink(true);
+    setSaveNotice('');
+    try {
+      const recipe = await readHelloFreshLink(recipeUrl);
+      setMealKit('hellofresh');
+      if (recipe.name) setRecipeName(recipe.name);
+      if (recipe.minutes) setCookMinutes(recipe.minutes);
+      if (recipe.tags) setMealTags(recipe.tags);
+      setFoodItems(recipe.ingredients.join('\n'));
+      setRecipeUrl(recipe.url);
+      notify('Ingredients read', `${recipe.ingredients.length} foods, each on its own line. The method stays on HelloFresh.`);
+    } catch (e) {
+      notify('Could not read that link', e?.message || 'Try the recipe page itself.');
+    } finally {
+      setReadingLink(false);
     }
   };
 
@@ -192,13 +230,41 @@ export default function AddFoodScreen({ navigation, route }) {
           hint="Camera, gallery (Google Photos on Android), or a file."
         />
 
-        <Text style={styles.label}>Items</Text>
+        <Text style={styles.label}>HelloFresh recipe link</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="https://www.hellofresh.co.uk/recipes/…"
+          placeholderTextColor="#64748b"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={recipeUrl}
+          onChangeText={setRecipeUrl}
+        />
+        <TouchableOpacity style={[styles.shopBtn, readingLink && styles.saveDisabled]} onPress={readLink} disabled={readingLink}>
+          <Text style={styles.shopBtnText}>{readingLink ? 'Reading the page…' : 'Read ingredients from this link'}</Text>
+        </TouchableOpacity>
+        <Text style={styles.hint}>
+          Each food on that public recipe page becomes its own line. A meal note is not split. The cooking method stays on HelloFresh.
+        </Text>
+
+        <Text style={styles.label}>Ingredients</Text>
         <TextInput
           style={[styles.input, styles.items]}
-          placeholder="e.g. pasta, salad, coffee"
+          placeholder={'One food per line\nChicken thigh\nEgg noodles'}
           placeholderTextColor="#64748b"
           value={foodItems}
           onChangeText={setFoodItems}
+          multiline
+          textAlignVertical="top"
+        />
+
+        <Text style={styles.label}>Note</Text>
+        <TextInput
+          style={[styles.input, styles.items]}
+          placeholder="Optional. A sentence stays a note and is not turned into foods."
+          placeholderTextColor="#64748b"
+          value={note}
+          onChangeText={setNote}
           multiline
           textAlignVertical="top"
         />
@@ -275,15 +341,6 @@ export default function AddFoodScreen({ navigation, route }) {
               placeholderTextColor="#64748b"
               value={mealTags}
               onChangeText={setMealTags}
-            />
-            <Text style={styles.label}>Recipe link</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="https://"
-              placeholderTextColor="#64748b"
-              autoCapitalize="none"
-              value={recipeUrl}
-              onChangeText={setRecipeUrl}
             />
           </>
         ) : null}
