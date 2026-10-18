@@ -91,6 +91,7 @@ const WRITABLE = [
   'photoNote', 'coverPhotoNote', 'shareCaption', 'placeName', 'foodStatus',
   'foodItems', 'emailFrom', 'botNote',
   'socialUrl', 'socialTitle', 'socialPlatform', 'socialAction', 'socialNote', 'url',
+  'driveUrl',
 ];
 
 class HttpError extends Error {
@@ -163,7 +164,7 @@ function pickWritable(body) {
       throw new HttpError(400, `${k} must be an https download URL from POST /photos`);
     }
   });
-  ['socialUrl', 'url'].forEach((k) => {
+  ['socialUrl', 'url', 'driveUrl'].forEach((k) => {
     if (out[k] !== undefined && out[k] !== null && !/^https:\/\//i.test(String(out[k]))) {
       throw new HttpError(400, `${k} must be an https URL`);
     }
