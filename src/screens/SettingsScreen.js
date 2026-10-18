@@ -980,6 +980,19 @@ export default function SettingsScreen({ navigation }) {
         <Text style={[styles.section, { color: colors.muted }]}>Sharing & mail</Text>
         <TouchableOpacity
           style={[styles.menuRow, { borderColor: colors.cardBorder, backgroundColor: colors.card }]}
+          onPress={() => navigation.navigate('ConnectBot')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.menuRowText}>
+            <Text style={[styles.menuRowLabel, { color: colors.text }]}>Connect a bot</Text>
+            <Text style={[styles.hint, { color: colors.faint, marginTop: 4, marginBottom: 0 }]}>
+              Bot keys for Timeline Bot. Revoke keys. Review events added by bot.
+            </Text>
+          </View>
+          <Text style={[styles.chevron, { color: colors.faint }]}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.menuRow, { borderColor: colors.cardBorder, backgroundColor: colors.card }]}
           onPress={() => navigation.navigate('OpenBanking')}
           activeOpacity={0.7}
         >

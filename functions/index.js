@@ -18,6 +18,7 @@ const { setGlobalOptions } = require('firebase-functions/v2');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage, getDownloadURL } = require('firebase-admin/storage');
+const { getAuth } = require('firebase-admin/auth');
 
 initializeApp();
 setGlobalOptions({ region: 'europe-west2', maxInstances: 5 });
@@ -224,6 +225,70 @@ const wrap = (fn) => (req, res) =>
     res.status(status).json({ error: status >= 500 ? 'Server error' : e.message });
   });
 
+// ---------- key management (signed-in app user, Firebase ID token) ----------
+// These routes use `Authorization: Bearer <Firebase ID token>`, not a bot key.
+
+const MAX_ACTIVE_KEYS = 10;
+
+async function appUser(req) {
+  const m = String(req.get('authorization') || '').match(/^Bearer\s+(\S+)$/i);
+  if (!m) throw new HttpError(401, 'Sign in first (missing Firebase ID token)');
+  try {
+    const decoded = await getAuth().verifyIdToken(m[1]);
+    return decoded.uid;
+  } catch (_) {
+    throw new HttpError(401, 'Invalid or expired sign-in token');
+  }
+}
+
+const keyView = (d) => {
+  const k = d.data();
+  return {
+    hash: d.id,
+    label: k.label || '',
+    revoked: !!k.revoked,
+    createdAt: toIso(k.createdAt) || null,
+    lastUsedAt: toIso(k.lastUsedAt) || null,
+  };
+};
+
+// POST /keys/create { label } -> { key, hash, label, apiUrl }  (key is shown once, never stored)
+app.post('/keys/create', wrap(async (req, res) => {
+  const uid = await appUser(req);
+  const active = await db.collection('botKeys').where('uid', '==', uid).where('revoked', '==', false).get();
+  if (active.size >= MAX_ACTIVE_KEYS) throw new HttpError(409, `You already have ${MAX_ACTIVE_KEYS} active keys. Revoke one first.`);
+  const label = String((req.body && req.body.label) || 'Bot').trim().slice(0, 60) || 'Bot';
+  const key = 'tl_' + crypto.randomBytes(32).toString('base64url');
+  const hash = sha256(key);
+  // Same fields the published botKeys rule allows: uid, createdAt, label, revoked.
+  await db.collection('botKeys').doc(hash).create({
+    uid,
+    createdAt: FieldValue.serverTimestamp(),
+    label,
+    revoked: false,
+  });
+  res.status(201).json({ key, hash, label });
+}));
+
+// POST /keys/list -> { keys: [{ hash, label, revoked, createdAt, lastUsedAt }] }
+app.post('/keys/list', wrap(async (req, res) => {
+  const uid = await appUser(req);
+  const snap = await db.collection('botKeys').where('uid', '==', uid).get();
+  res.json({ keys: snap.docs.map(keyView) });
+}));
+
+// POST /keys/revoke { hash } -> { hash, revoked: true }
+app.post('/keys/revoke', wrap(async (req, res) => {
+  const uid = await appUser(req);
+  const hash = String((req.body && req.body.hash) || '');
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw new HttpError(400, 'hash must be the 64-character SHA-256 of the key');
+  const ref = db.collection('botKeys').doc(hash);
+  const snap = await ref.get();
+  if (!snap.exists || snap.data().uid !== uid) throw new HttpError(404, 'Key not found');
+  await ref.update({ revoked: true, revokedAt: FieldValue.serverTimestamp() });
+  res.json({ hash, revoked: true });
+}));
+
 // Every route needs a valid key; req.uid is the only user ever touched.
 app.use((req, res, next) => {
   authenticate(req)
@@ -337,4 +402,4 @@ app.patch('/events/:id', wrap(async (req, res) => {
 
 app.use((_req, res) => res.status(404).json({ error: 'Unknown endpoint' }));
 
-exports.api = onRequest({ cors: false, timeoutSeconds: 60, memory: '256MiB' }, app);
+exports.api = onRequest({ cors: true, timeoutSeconds: 60, memory: '256MiB' }, app);

@@ -58,6 +58,7 @@ import BuyCreditsScreen from './src/screens/BuyCreditsScreen';
 import TransferCreditsScreen from './src/screens/TransferCreditsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import OpenBankingScreen from './src/screens/OpenBankingScreen';
+import ConnectBotScreen from './src/screens/ConnectBotScreen';
 import LegalScreen from './src/screens/LegalScreen';
 import EventsWithFriendsScreen from './src/screens/EventsWithFriendsScreen';
 import ShareEventScreen from './src/screens/ShareEventScreen';
@@ -664,6 +665,12 @@ function AppShell() {
                 name="Settings"
                 component={SettingsScreen}
                 options={{ title: 'Settings' }}
+              />
+
+              <Stack.Screen
+                name="ConnectBot"
+                component={ConnectBotScreen}
+                options={{ title: 'Connect a bot' }}
               />
 
               <Stack.Screen

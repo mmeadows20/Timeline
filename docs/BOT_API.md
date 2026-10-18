@@ -4,7 +4,7 @@ One HTTPS Cloud Function, `api` (region `europe-west2`, project `timelineapp-3bc
 After deploy the base URL is `https://europe-west2-timelineapp-3bc05.cloudfunctions.net/api`
 (Cloud Functions v2 also gives a `https://api-<hash>-nw.a.run.app` URL; either works).
 
-**Status:** code only. Not deployed yet, and no keys exist yet (Settings > "Connect a bot" is step 3).
+**Status:** deployed. Keys are made in the app: Settings → Connect a bot → Create bot key.
 
 ## Auth
 Every request: `Authorization: Bearer <key>`.
@@ -79,6 +79,12 @@ Or attach the photo in the same call with `imageBase64` (+ `contentType`).
 ### `PATCH /events/:id`
 Body: any of the optional fields above. `id`, `ownerUid`, `addedBy`, `createdAt` cannot be changed. Sets `updatedAt`.
 `200` → the updated event + links.
+
+## Key management (app only)
+These use `Authorization: Bearer <Firebase ID token>` of the signed-in app user, not a bot key.
+- `POST /keys/create { label }` → `201 { key, hash, label }`. Key = `tl_` + 32 random bytes (base64url), made on the server; only its SHA-256 is stored. Max 10 active keys.
+- `POST /keys/list` → `{ keys: [{ hash, label, revoked, createdAt, lastUsedAt }] }`
+- `POST /keys/revoke { hash }` → `{ hash, revoked: true }` (only your own keys)
 
 ## Example
 ```bash

@@ -69,11 +69,13 @@ function Meta({ label, value, styles }) {
 export default function EventViewScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useMemo(() => screenStyles(colors), [colors]);
-  const seed = route.params?.event;
+  const seed = route.params?.event || (route.params?.eventId ? { id: String(route.params.eventId) } : null);
+  const linkOnly = !route.params?.event && !!route.params?.eventId;
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [fullOpen, setFullOpen] = useState(false);
   const [dateFormat, setDateFormat] = useState(DATE_FORMAT_DMY);
-  const [event, setEvent] = useState(seed || null);
+  const [event, setEvent] = useState(linkOnly ? null : seed || null);
+  const [linkLoading, setLinkLoading] = useState(linkOnly);
   const [linked, setLinked] = useState([]);
   const [linkOpen, setLinkOpen] = useState(false);
 
@@ -89,6 +91,8 @@ export default function EventViewScreen({ navigation, route }) {
       setLinked(rows);
     } catch {
       setLinked([]);
+    } finally {
+      setLinkLoading(false);
     }
   }, [seed?.id]);
 
@@ -120,7 +124,9 @@ export default function EventViewScreen({ navigation, route }) {
   if (!event) {
     return (
       <View style={styles.emptyWrap}>
-        <Text style={styles.empty}>This event could not be opened.</Text>
+        <Text style={styles.empty}>
+          {linkLoading ? 'Opening event…' : 'This event could not be opened.'}
+        </Text>
       </View>
     );
   }

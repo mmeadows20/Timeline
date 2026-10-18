@@ -1912,6 +1912,7 @@ export const TIMELINE_FILTERS = [
   { id: 'location', label: 'Places', color: '#2dd4bf', itemView: true },
   { id: 'life', label: 'Life', color: '#e879f9', itemView: true },
   { id: 'bank', label: 'Banking', color: '#22d3ee', itemView: true },
+  { id: 'bot', label: 'Added by bot', color: '#a3e635', itemView: true },
   ...CATEGORIES.map((c) => ({
     id: `cat:${c.id}`,
     label: c.label,
@@ -1942,6 +1943,7 @@ export function eventMatchesTimelineFilter(event, filterId) {
   if (filterId === 'location') return source === 'location' || Boolean(event?.placeName);
   if (filterId === 'life') return source === 'life' || Boolean(event?.lifeKind);
   if (filterId === 'bank') return source === 'bank' || category === 'banking';
+  if (filterId === 'bot') return event?.addedBy === 'bot';
   if (filterId.startsWith('cat:')) return category === filterId.slice(4);
   return true;
 }

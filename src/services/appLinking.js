@@ -54,6 +54,15 @@ export function buildAppLinking() {
           ],
         };
       }
+      const eventLink = String(path || '').match(/(?:^|\/)event\/([A-Za-z0-9_-]+)\/?(?:\?.*)?$/i);
+      if (eventLink) {
+        return {
+          routes: [
+            { name: 'Home' },
+            { name: 'EventView', params: { eventId: eventLink[1] } },
+          ],
+        };
+      }
       const widget = String(path || '').match(/(?:^|\/)widget\/(scan|add)\/?$/i);
       if (widget) {
         return {
