@@ -181,6 +181,9 @@ export default function AddFoodScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => navigation.navigate('MealSkyline')}>
           <Text style={styles.skylineLink}>Meal skyline · five meal-kit cards open the map</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.shopBtn} onPress={() => navigation.navigate('ShoppingList')}>
+          <Text style={styles.shopBtnText}>Shopping list — remake a meal</Text>
+        </TouchableOpacity>
 
         <ImageAttachField
           label="Photo"
@@ -319,6 +322,14 @@ function screenStyles(c) {
   intro: { color: c.faint, fontSize: 13, lineHeight: 18, marginBottom: 8 },
   hint: { color: c.faint, fontSize: 12, lineHeight: 17, marginTop: 8 },
   skylineLink: { color: '#e7a06a', fontSize: 14, fontWeight: '700', marginBottom: 12 },
+  shopBtn: {
+    backgroundColor: c.blue,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  shopBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   label: { color: c.faint, fontSize: 14, marginTop: 16, marginBottom: 8 },
   input: {
     backgroundColor: c.card,

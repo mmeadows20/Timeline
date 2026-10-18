@@ -24,6 +24,7 @@ import AddPoemScreen from './src/screens/AddPoemScreen';
 import AddSingingScreen from './src/screens/AddSingingScreen';
 import AddFoodScreen from './src/screens/AddFoodScreen';
 import MealSkylineScreen from './src/screens/MealSkylineScreen';
+import ShoppingListScreen from './src/screens/ShoppingListScreen';
 import AddWashLoadScreen from './src/screens/AddWashLoadScreen';
 import PickFromGmailScreen from './src/screens/PickFromGmailScreen';
 import AddWatchedScreen from './src/screens/AddWatchedScreen';
@@ -435,6 +436,12 @@ function AppShell() {
                 name="MealSkyline"
                 component={MealSkylineScreen}
                 options={{ title: 'Meal skyline' }}
+              />
+
+              <Stack.Screen
+                name="ShoppingList"
+                component={ShoppingListScreen}
+                options={{ title: 'Shopping list' }}
               />
 
               <Stack.Screen
