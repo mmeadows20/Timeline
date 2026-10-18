@@ -135,7 +135,7 @@ export default function MealSkylineScreen({ navigation }) {
         <Text style={styles.title}>Meal skyline</Text>
         <Text style={styles.intro}>
           Days run left to right. The height is the time of day, so a late cook sits higher.
-          Each plate is the photo from that HelloFresh card. This is not a node graph or the year line.
+          Each plate is your own photo of that meal. This is not a node graph or the year line.
         </Text>
 
         {loading ? <ActivityIndicator color="#e7a06a" style={{ marginTop: 24 }} /> : null}
@@ -185,7 +185,7 @@ function Progress({ cards, unlocked, busy, onUnlock }) {
   return (
     <View style={styles.progressCard}>
       <Text style={styles.progressCount}>
-        {cards.length} of {MEAL_SKYLINE_MIN} HelloFresh cards
+        {cards.length} of {MEAL_SKYLINE_MIN} meal-kit cards
       </Text>
       <Text style={styles.progressHint}>
         Each one needs a photo and a recipe name or ingredient list. The skyline stays closed until then,

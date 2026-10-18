@@ -126,7 +126,8 @@ Product map:
   - **Ratings and swaps:** would make again, or a note such as “used yoghurt instead of soured cream”.
   - **Recipe history and favourites** from every card saved.
   - **Shopping list** to re-make a past recipe without ordering the box.
-  **Before any paid use of the HelloFresh name or their recipe text:** check we are allowed to. Their brand and recipe content are theirs. Do not ship a paid feature that copies recipe steps or uses their logo until that is clear. A link to their page, plus the user’s own photo and notes, is the safe starting point.
+  **Brand check (18 Oct 2026, looked up, not a lawyer’s opinion):** Grocery Delivery E-Services UK Limited’s terms (updated 3 August 2026, clause 21) say they own the website and the material on it. A person may print or download a page for personal, non-commercial use. Using any of that material commercially needs a licence from them. Scraping, data mining and framing are not allowed. The US terms (18 March 2026) also say the name and logo may not be used except as those terms allow, and a third-party app must not interact with their content, site or app without written consent. HELLOFRESH is a registered trade mark covering recipe cards and meal-kit services. There is no official public recipe API. Sites such as hfresh.info are not HelloFresh, and their own notes say the recipe data still belongs to HelloFresh. Do not use them.
+  **What we ship:** the paid map and the credits-shop line say “meal kit”, not the brand, and they do not use the logo. The user keeps their own photo and the name they typed. A link out to the recipe page is the safe pointer. The app does not copy recipe steps, scrape the site, or read the card with OCR until there is written permission. A private note the user types themselves (including a box name, if they choose to) is their diary, not our product name. A later shopping list must be the user’s own ingredient lines, each still tied to their meal, not a copy of the printed card. Asking the company for a licence is the step before any paid screen uses the brand or their recipe text.
 - [ ] Calories / structured nutrition - not in this pass
 
 ---
@@ -206,7 +207,7 @@ Product map:
 
 ## Next / Nice to have
 
-- [ ] **Next to build — Food extras: meal-kit recipes.** Full notes are in the Food section above. HelloFresh card photo first; Gousto and Mindful Chef later. Repeats, ratings, favourites, and a re-make shopping list are the paid parts. Check brand and recipe-content permission before those.
+- [ ] **Next to build — Food extras: meal-kit recipes.** Full notes are in the Food section above. Meal-kit card photo first; other boxes later. Repeats, ratings, favourites, and a re-make shopping list are the paid parts. Brand check is done: paid screens say “meal kit”, not the company name, and they do not copy recipe text. A link, the user’s photo, and the user’s own notes are the safe start. A licence is required before the brand or their recipes appear in a paid feature.
 
 - [x] **Poster QR into a draft event (5 Oct 2026):** Add event → QR link → Scan a poster QR, or paste the link. Opens Add event with a title, the link, a date when the code or page has one, and a place when a calendar code has one. Nothing is saved until Save. A Timeline friend-invite code is sent to Enter invite instead.
 

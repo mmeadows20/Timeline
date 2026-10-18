@@ -151,7 +151,7 @@ export const SHOP_ITEMS = [
   {
     id: 'mealSkyline',
     title: 'Meal skyline',
-    blurb: 'A day-and-time map of HelloFresh cards. Opens once five cards have a photo and a recipe name. Not a node graph.',
+    blurb: 'A day-and-time map of meal-kit cards you photographed. Opens once five cards have your photo and the name you gave the meal. Not a node graph, and it does not use a box logo.',
     cost: 4,
     perk: 'mealSkyline',
   },

@@ -23,9 +23,7 @@ const FOOD_STATUSES = [
 
 const MEAL_KITS = [
   { id: '', label: 'Not a box' },
-  { id: 'hellofresh', label: 'HelloFresh' },
-  { id: 'gousto', label: 'Gousto' },
-  { id: 'mindful', label: 'Mindful Chef' },
+  { id: 'hellofresh', label: 'Meal kit' },
   { id: 'other', label: 'Other box' },
 ];
 
@@ -181,7 +179,7 @@ export default function AddFoodScreen({ navigation, route }) {
           Photo-heavy meal note on your Timeline — not a calorie tracker.
         </Text>
         <TouchableOpacity onPress={() => navigation.navigate('MealSkyline')}>
-          <Text style={styles.skylineLink}>Meal skyline · five HelloFresh cards open the map</Text>
+          <Text style={styles.skylineLink}>Meal skyline · five meal-kit cards open the map</Text>
         </TouchableOpacity>
 
         <ImageAttachField
@@ -236,12 +234,16 @@ export default function AddFoodScreen({ navigation, route }) {
             );
           })}
         </View>
+        <Text style={styles.hint}>
+          Your own photo and the name you type. Timeline is not part of the box company.
+          The paid map does not use their logo or their recipe text. A link to their page is fine.
+        </Text>
         {mealKit ? (
           <>
             <Text style={styles.label}>Recipe name</Text>
             <TextInput
               style={styles.input}
-              placeholder="Name on the card"
+              placeholder="What you call this meal"
               placeholderTextColor="#64748b"
               value={recipeName}
               onChangeText={setRecipeName}
@@ -315,6 +317,7 @@ function screenStyles(c) {
   content: { padding: 20, paddingBottom: 40 },
   heading: { color: c.text, fontSize: 22, fontWeight: '700', marginBottom: 6 },
   intro: { color: c.faint, fontSize: 13, lineHeight: 18, marginBottom: 8 },
+  hint: { color: c.faint, fontSize: 12, lineHeight: 17, marginTop: 8 },
   skylineLink: { color: '#e7a06a', fontSize: 14, fontWeight: '700', marginBottom: 12 },
   label: { color: c.faint, fontSize: 14, marginTop: 16, marginBottom: 8 },
   input: {
