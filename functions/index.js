@@ -1,0 +1,340 @@
+/**
+ * Timeline Bot API — one HTTPS function `api` (Cloud Functions v2 + Express).
+ *
+ * Auth: `Authorization: Bearer <key>`. Only the SHA-256 hash of a key is stored,
+ * at botKeys/{hash} -> { uid, createdAt, lastUsedAt, revoked }.
+ * Every request is scoped to that uid only.
+ *
+ * Events are written to users/{uid}/events/{id} in the same shape as
+ * src/services/eventService.js saveEvent(), plus addedBy: 'bot'.
+ * Photos go to Storage at users/{uid}/events/{eventId}/imageUri.jpg
+ * (same path as src/services/photoStorage.js).
+ */
+const crypto = require('crypto');
+const express = require('express');
+const Busboy = require('busboy');
+const { onRequest } = require('firebase-functions/v2/https');
+const { setGlobalOptions } = require('firebase-functions/v2');
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getStorage, getDownloadURL } = require('firebase-admin/storage');
+
+initializeApp();
+setGlobalOptions({ region: 'europe-west2', maxInstances: 5 });
+
+const db = getFirestore();
+
+const APP_SCHEME = 'timelineapp'; // app.json "scheme"
+const RATE_LIMIT_PER_MINUTE = 60;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // matches storage.rules
+const MAX_LIST = 200;
+const SCAN_CAP = 1000;
+
+/** Quick-reply kinds from the bot skill -> existing app source/category. */
+const KINDS = {
+  memory: { source: 'manual', category: 'personal' },
+  event: { source: 'manual', category: 'personal' },
+  poem: { source: 'hobby', category: 'hobby', hobbyType: 'poetry' },
+  food: { source: 'food', category: 'other' },
+  other: { source: 'manual', category: 'other' },
+};
+
+/** Fields a bot may set on create / patch. Protected: id, ownerUid, addedBy, createdAt. */
+const WRITABLE = [
+  'title', 'description', 'date', 'category', 'source', 'labels', 'location',
+  'nextAction', 'hobbyType', 'collectionName', 'imageUri', 'coverImageUri',
+  'photoNote', 'coverPhotoNote', 'shareCaption', 'placeName', 'foodStatus',
+  'foodItems', 'emailFrom', 'botNote',
+];
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const sha256 = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+
+/** Same id format as eventService.saveEvent. */
+const newEventId = () => Date.now().toString() + Math.random().toString(36).slice(2, 8);
+
+const eventsCol = (uid) => db.collection('users').doc(uid).collection('events');
+
+function stripUndefined(value) {
+  if (value === undefined) return undefined;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(stripUndefined).filter((v) => v !== undefined);
+  if (value && typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach((k) => {
+      const v = stripUndefined(value[k]);
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  return value;
+}
+
+function toIso(value) {
+  if (value && typeof value.toDate === 'function') return value.toDate().toISOString();
+  return value;
+}
+
+function links(id) {
+  return { appLink: `${APP_SCHEME}://event/${id}`, webLink: null };
+}
+
+function present(data, id) {
+  const ev = { ...data, id: data.id || id };
+  ['date', 'createdAt', 'updatedAt'].forEach((k) => {
+    if (ev[k]) ev[k] = toIso(ev[k]);
+  });
+  return { ...ev, ...links(ev.id) };
+}
+
+function parseDate(value, field) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) throw new HttpError(400, `${field} must be an ISO date, e.g. 2026-10-18 or 2026-10-18T14:30:00Z`);
+  return d.toISOString();
+}
+
+function pickWritable(body) {
+  const out = {};
+  WRITABLE.forEach((k) => {
+    if (body[k] !== undefined) out[k] = body[k];
+  });
+  if (out.title !== undefined) out.title = String(out.title).trim().slice(0, 300);
+  if (out.description !== undefined) out.description = String(out.description).slice(0, 20000);
+  if (out.labels !== undefined) {
+    if (!Array.isArray(out.labels)) throw new HttpError(400, 'labels must be an array of strings');
+    out.labels = out.labels.map((l) => String(l).trim()).filter(Boolean).slice(0, 50);
+  }
+  if (out.date !== undefined) out.date = parseDate(out.date, 'date');
+  ['imageUri', 'coverImageUri'].forEach((k) => {
+    if (out[k] !== undefined && out[k] !== null && !/^https:\/\//i.test(String(out[k]))) {
+      throw new HttpError(400, `${k} must be an https download URL from POST /photos`);
+    }
+  });
+  return out;
+}
+
+// ---------- auth + rate limit ----------
+
+async function authenticate(req) {
+  const header = String(req.get('authorization') || '');
+  const m = header.match(/^Bearer\s+(\S{16,})$/i);
+  if (!m) throw new HttpError(401, 'Missing or malformed Authorization: Bearer <key>');
+  const ref = db.collection('botKeys').doc(sha256(m[1]));
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpError(401, 'Unknown key');
+    const key = snap.data();
+    if (key.revoked || !key.uid) throw new HttpError(401, 'Key revoked');
+    const now = Date.now();
+    const windowStart = Number(key.rateWindowStart || 0);
+    const inWindow = now - windowStart < 60 * 1000;
+    const count = inWindow ? Number(key.rateCount || 0) + 1 : 1;
+    if (count > RATE_LIMIT_PER_MINUTE) {
+      throw new HttpError(429, `Rate limit: ${RATE_LIMIT_PER_MINUTE} requests per minute`);
+    }
+    tx.update(ref, {
+      lastUsedAt: FieldValue.serverTimestamp(),
+      rateWindowStart: inWindow ? windowStart : now,
+      rateCount: count,
+    });
+    return key.uid;
+  });
+}
+
+// ---------- photos ----------
+
+function decodeBase64Image(input, contentType) {
+  let data = String(input || '');
+  let type = contentType;
+  const m = data.match(/^data:([^;]+);base64,(.*)$/s);
+  if (m) {
+    type = type || m[1];
+    data = m[2];
+  }
+  return { buffer: Buffer.from(data, 'base64'), contentType: type || 'image/jpeg' };
+}
+
+function readMultipart(req) {
+  return new Promise((resolve, reject) => {
+    const fields = {};
+    let file = null;
+    const bb = Busboy({ headers: req.headers, limits: { files: 1, fileSize: MAX_IMAGE_BYTES + 1 } });
+    bb.on('field', (name, val) => {
+      fields[name] = val;
+    });
+    bb.on('file', (_name, stream, info) => {
+      const chunks = [];
+      stream.on('data', (c) => chunks.push(c));
+      stream.on('end', () => {
+        file = { buffer: Buffer.concat(chunks), contentType: info.mimeType };
+      });
+    });
+    bb.on('error', reject);
+    bb.on('close', () => resolve({ fields, file }));
+    bb.end(req.rawBody);
+  });
+}
+
+async function readImage(req) {
+  const type = String(req.get('content-type') || '').toLowerCase();
+  if (type.startsWith('multipart/form-data')) {
+    const { fields, file } = await readMultipart(req);
+    if (!file) throw new HttpError(400, 'multipart upload needs one file field');
+    return { ...file, eventId: fields.eventId };
+  }
+  if (type.startsWith('image/')) {
+    return { buffer: req.rawBody, contentType: type.split(';')[0], eventId: req.query.eventId };
+  }
+  const body = req.body || {};
+  if (!body.imageBase64) throw new HttpError(400, 'Send JSON { imageBase64, contentType?, eventId? }, multipart/form-data, or a raw image/* body');
+  return { ...decodeBase64Image(body.imageBase64, body.contentType), eventId: body.eventId };
+}
+
+async function storeImage(uid, eventId, { buffer, contentType }) {
+  if (!buffer || !buffer.length) throw new HttpError(400, 'Empty image');
+  if (buffer.length > MAX_IMAGE_BYTES) throw new HttpError(413, 'Image must be under 5 MB');
+  if (!/^image\//.test(contentType || '')) throw new HttpError(415, 'Only image/* uploads are allowed');
+  const storagePath = `users/${uid}/events/${eventId}/imageUri.jpg`;
+  const file = getStorage().bucket().file(storagePath);
+  await file.save(buffer, { contentType, resumable: false, metadata: { metadata: { addedBy: 'bot' } } });
+  const downloadUrl = await getDownloadURL(file);
+  return { storagePath, downloadUrl };
+}
+
+function validEventId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(id);
+}
+
+// ---------- app ----------
+
+const app = express();
+app.use(express.json({ limit: '8mb' }));
+
+const wrap = (fn) => (req, res) =>
+  Promise.resolve(fn(req, res)).catch((e) => {
+    const status = e.status || 500;
+    if (status >= 500) console.error(e);
+    res.status(status).json({ error: status >= 500 ? 'Server error' : e.message });
+  });
+
+// Every route needs a valid key; req.uid is the only user ever touched.
+app.use((req, res, next) => {
+  authenticate(req)
+    .then((uid) => {
+      req.uid = uid;
+      next();
+    })
+    .catch((e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' }));
+});
+
+// POST /photos -> { eventId, storagePath, downloadUrl }
+app.post('/photos', wrap(async (req, res) => {
+  const image = await readImage(req);
+  const eventId = image.eventId ? String(image.eventId) : newEventId();
+  if (!validEventId(eventId)) throw new HttpError(400, 'Invalid eventId');
+  const out = await storeImage(req.uid, eventId, image);
+  res.status(201).json({ eventId, ...out });
+}));
+
+// POST /events -> created event + appLink/webLink
+app.post('/events', wrap(async (req, res) => {
+  const body = req.body || {};
+  const fields = pickWritable(body);
+  const kind = KINDS[String(body.kind || '').toLowerCase()];
+  if (kind) {
+    fields.source = fields.source || kind.source;
+    fields.category = fields.category || kind.category;
+    if (kind.hobbyType) fields.hobbyType = fields.hobbyType || kind.hobbyType;
+  }
+  if (!fields.title) throw new HttpError(400, 'title is required');
+
+  let id = newEventId();
+  if (body.id !== undefined) {
+    if (!validEventId(String(body.id))) throw new HttpError(400, 'Invalid id');
+    id = String(body.id); // e.g. the eventId returned by POST /photos
+  }
+  const ref = eventsCol(req.uid).doc(id);
+  if ((await ref.get()).exists) throw new HttpError(409, 'An event with this id already exists; use PATCH');
+
+  if (body.imageBase64) {
+    const { downloadUrl } = await storeImage(req.uid, id, decodeBase64Image(body.imageBase64, body.contentType));
+    fields.imageUri = downloadUrl;
+  }
+
+  const now = new Date().toISOString();
+  const event = stripUndefined({
+    description: '',
+    category: 'personal',
+    labels: [],
+    ...fields,
+    id,
+    date: fields.date || now,
+    source: fields.source || 'manual',
+    nextAction: fields.nextAction || 'none',
+    createdAt: now,
+    updatedAt: now,
+    ownerUid: req.uid,
+    addedBy: 'bot',
+  });
+  await ref.set(event);
+  res.status(201).json(present(event, id));
+}));
+
+// GET /events?from=&to=&q=&label=&limit=
+app.get('/events', wrap(async (req, res) => {
+  const from = parseDate(req.query.from, 'from');
+  const to = parseDate(req.query.to, 'to');
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const label = String(req.query.label || '').trim().toLowerCase();
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), MAX_LIST);
+
+  let query = eventsCol(req.uid);
+  if (from) query = query.where('date', '>=', from);
+  if (to) query = query.where('date', '<=', to);
+  query = query.orderBy('date', 'desc').limit(q || label ? SCAN_CAP : limit);
+
+  const snap = await query.get();
+  let events = snap.docs.map((d) => present(d.data(), d.id));
+  if (label) {
+    events = events.filter((e) => Array.isArray(e.labels) && e.labels.some((l) => String(l).toLowerCase() === label));
+  }
+  if (q) {
+    events = events.filter((e) =>
+      [e.title, e.description, e.location, e.placeName, e.photoNote, ...(e.labels || [])]
+        .filter(Boolean)
+        .some((t) => String(t).toLowerCase().includes(q)));
+  }
+  res.json({ count: Math.min(events.length, limit), events: events.slice(0, limit) });
+}));
+
+// GET /events/:id
+app.get('/events/:id', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const snap = await eventsCol(req.uid).doc(req.params.id).get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  res.json(present(snap.data(), snap.id));
+}));
+
+// PATCH /events/:id
+app.patch('/events/:id', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const ref = eventsCol(req.uid).doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const fields = stripUndefined(pickWritable(req.body || {}));
+  if (!Object.keys(fields).length) throw new HttpError(400, 'No editable fields in body');
+  const update = { ...fields, updatedAt: new Date().toISOString(), ownerUid: req.uid };
+  await ref.set(update, { merge: true });
+  res.json(present({ ...snap.data(), ...update }, snap.id));
+}));
+
+app.use((_req, res) => res.status(404).json({ error: 'Unknown endpoint' }));
+
+exports.api = onRequest({ cors: false, timeoutSeconds: 60, memory: '256MiB' }, app);

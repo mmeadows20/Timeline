@@ -178,6 +178,17 @@ service cloud.firestore {
       allow read, write: if isOwner(uid) || isAdmin();
     }
 
+    // Bot API keys: doc id = SHA-256 of the key; only the Cloud Function (Admin SDK) reads them.
+    // For now a signed-in user may only create a key doc for themself (Settings "Connect a bot" later).
+    match /botKeys/{keyHash} {
+      allow read: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt', 'label', 'revoked'])
+        && (!('revoked' in request.resource.data) || request.resource.data.revoked == false);
+      allow update, delete: if false;
+    }
+
     match /joinInvites/{id} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()

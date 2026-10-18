@@ -1,6 +1,7 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Event photos (app: src/services/photoStorage.js; bot API writes the same path).
     match /users/{userId}/events/{eventId}/{fileName} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create, update: if request.auth != null
@@ -9,5 +10,14 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
+    // Any other file under a user's own folder (e.g. profile photo later): owner only.
+    match /users/{userId}/{allPaths=**} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+    // Everything else is closed.
   }
 }
