@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,14 @@ import SpineKindBlock, { SpineStage } from '../components/SpineKindBlock';
 import EventLabelChips from '../components/EventLabelChips';
 import { useTheme } from '../themeContext';
 
+function yearToLandOn(years) {
+  if (!years?.length) return null;
+  const now = new Date().getFullYear();
+  if (years.some((y) => y.year === now)) return now;
+  const past = years.filter((y) => y.year <= now);
+  return (past.length ? past[past.length - 1] : years[years.length - 1]).year;
+}
+
 export default function YearOverviewScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useMemo(() => screenStyles(colors), [colors]);
@@ -40,6 +48,10 @@ export default function YearOverviewScreen({ navigation, route }) {
   const [filters, setFilters] = useState(TIMELINE_FILTERS);
   const [dateFormat, setDateFormat] = useState('dmy');
   const [openYear, setOpenYear] = useState(null);
+  const scroller = useRef(null);
+  const stageY = useRef(0);
+  const blockY = useRef({});
+  const didScroll = useRef(false);
   const activeFilter = filters.find((f) => f.id === filterId) || filters[0];
   const itemView = !!activeFilter.itemView;
 
@@ -81,6 +93,24 @@ export default function YearOverviewScreen({ navigation, route }) {
     });
     return best;
   }, [years]);
+
+  const jumpToCurrentYear = useCallback(() => {
+    if (didScroll.current || !years.length) return;
+    const target = yearToLandOn(years);
+    const top = blockY.current[target];
+    if (top == null) return;
+    scroller.current?.scrollTo({
+      y: Math.max(0, (stageY.current || 0) + top - 8),
+      animated: false,
+    });
+    didScroll.current = true;
+  }, [years]);
+
+  useEffect(() => {
+    if (loading) return undefined;
+    const timer = setTimeout(jumpToCurrentYear, 80);
+    return () => clearTimeout(timer);
+  }, [loading, years, jumpToCurrentYear]);
 
   const toggleYear = (year) => {
     setOpenYear((cur) => (cur === year ? null : year));
@@ -231,7 +261,12 @@ export default function YearOverviewScreen({ navigation, route }) {
           {openYear} is open. Each bubble sits on its month. Tap a month letter to go into that month, or tap {openYear} again to fold it away.
         </Text>
       ) : null}
-      <ScrollView contentContainerStyle={styles.scroll} directionalLockEnabled nestedScrollEnabled>
+      <ScrollView
+        ref={scroller}
+        contentContainerStyle={styles.scroll}
+        directionalLockEnabled
+        nestedScrollEnabled
+      >
         {years.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Text style={styles.empty}>
@@ -262,6 +297,12 @@ export default function YearOverviewScreen({ navigation, route }) {
             )}
           </View>
         ) : (
+          <View
+            onLayout={(e) => {
+              stageY.current = e.nativeEvent.layout.y;
+              jumpToCurrentYear();
+            }}
+          >
           <SpineStage>
             <View style={styles.spine} />
             {years.map((item, index) => (
@@ -269,6 +310,7 @@ export default function YearOverviewScreen({ navigation, route }) {
                 key={item.year}
                 id={item.year}
                 label={String(item.year)}
+                current={item.year === new Date().getFullYear()}
                 bubbles={item.bubbles}
                 monthBubbles={item.monthBubbles || item.bubbles}
                 months={item.months}
@@ -276,12 +318,17 @@ export default function YearOverviewScreen({ navigation, route }) {
                 glowKey={itemView ? null : glowKey}
                 boxedLabel
                 expanded={openYear === item.year}
+                onLayout={(e) => {
+                  blockY.current[item.year] = e.nativeEvent.layout.y;
+                  if (item.year === yearToLandOn(years)) jumpToCurrentYear();
+                }}
                 onOpenLabel={() => toggleYear(item.year)}
                 onOpenMonth={(month) => openMonth(item.year, month)}
                 onOpenBubble={(bubble) => openBubble(item.year, bubble)}
               />
             ))}
           </SpineStage>
+          </View>
         )}
       </ScrollView>
       <HomeFab navigation={navigation} besidePlus={false} />
