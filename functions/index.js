@@ -56,6 +56,34 @@ const KINDS = {
   other: { source: 'manual', category: 'other' },
 };
 
+/** GET /events?kind= -> same buckets as POST /events kinds (and the app's year-bubble classifier). */
+const FILTER_KINDS = ['social', 'poem', 'memory', 'event', 'food', 'todo', 'other'];
+function hasLabel(e, name) {
+  return Array.isArray(e.labels) && e.labels.some((l) => String(l).trim().toLowerCase() === name);
+}
+function isPoem(e) {
+  const src = String(e.source || '').toLowerCase();
+  return String(e.hobbyType || '').toLowerCase() === 'poetry' || src === 'poem' || hasLabel(e, 'poem');
+}
+function isTodoEvent(e) {
+  return String(e.source || '').toLowerCase() === 'todo' || !!e.fromTodo;
+}
+function matchesKind(e, kind) {
+  const src = String(e.source || 'manual').toLowerCase();
+  const cat = String(e.category || '').toLowerCase();
+  switch (kind) {
+    case 'poem': return isPoem(e);
+    case 'social': return src === 'social';
+    case 'food': return src === 'food';
+    case 'todo': return isTodoEvent(e);
+    // memory and event are stored the same way (source manual); "other" = manual + category other.
+    case 'memory':
+    case 'event': return src === 'manual' && cat !== 'other' && !isPoem(e) && !isTodoEvent(e);
+    case 'other': return src === 'manual' && cat === 'other' && !isPoem(e) && !isTodoEvent(e);
+    default: return true;
+  }
+}
+
 /** Fields a bot may set on create / patch. Protected: id, ownerUid, addedBy, createdAt. */
 const WRITABLE = [
   'title', 'description', 'date', 'category', 'source', 'labels', 'location',
@@ -489,25 +517,33 @@ app.get('/events', wrap(async (req, res) => {
   const to = parseDate(req.query.to, 'to');
   const q = String(req.query.q || '').trim().toLowerCase();
   const label = String(req.query.label || '').trim().toLowerCase();
+  const kind = String(req.query.kind || '').trim().toLowerCase();
+  const source = String(req.query.source || '').trim().toLowerCase();
+  if (kind && !FILTER_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of: ${FILTER_KINDS.join(', ')}`);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), MAX_LIST);
+  const scanning = !!(q || label || kind || source);
 
   let query = eventsCol(req.uid);
   if (from) query = query.where('date', '>=', from);
   if (to) query = query.where('date', '<=', to);
-  query = query.orderBy('date', 'desc').limit(q || label ? SCAN_CAP : limit);
+  query = query.orderBy('date', 'desc').limit(scanning ? SCAN_CAP : limit);
 
   const snap = await query.get();
   let events = snap.docs.map((d) => present(d.data(), d.id));
+  if (kind) events = events.filter((e) => matchesKind(e, kind));
+  if (source) events = events.filter((e) => String(e.source || 'manual').toLowerCase() === source);
   if (label) {
     events = events.filter((e) => Array.isArray(e.labels) && e.labels.some((l) => String(l).toLowerCase() === label));
   }
   if (q) {
     events = events.filter((e) =>
-      [e.title, e.description, e.location, e.placeName, e.photoNote, ...(e.labels || [])]
+      [e.title, e.description, e.location, e.placeName, e.photoNote, e.socialTitle, e.socialNote, e.botNote, ...(e.labels || [])]
         .filter(Boolean)
         .some((t) => String(t).toLowerCase().includes(q)));
   }
-  res.json({ count: Math.min(events.length, limit), events: events.slice(0, limit) });
+  const out = { count: Math.min(events.length, limit), total: events.length, events: events.slice(0, limit) };
+  if (scanning && snap.size >= SCAN_CAP) out.truncated = true; // only the newest SCAN_CAP events were searched
+  res.json(out);
 }));
 
 // GET /events/:id
@@ -768,6 +804,150 @@ app.delete('/events/:id', wrap(async (req, res) => {
   }
   await ref.delete();
   res.json({ deleted: snap.id, removed });
+}));
+
+// ---------- To-dos (mirrors src/services/todoService.js; keep in sync) ----------
+// users/{uid}/settings/todos -> { items: [row], updatedAt }, newest first.
+
+const todosDoc = (uid) => db.collection('users').doc(uid).collection('settings').doc('todos');
+
+/** Same id format as todoService.newId (base36 time + 6 chars). */
+const newTodoId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+/** Same as todoService.cleanItem. */
+function cleanTodo(raw) {
+  const row = raw && typeof raw === 'object' ? raw : {};
+  return {
+    id: String(row.id || newTodoId()),
+    title: String(row.title || '').trim(),
+    note: String(row.note || '').trim(),
+    category: String(row.category || 'personal'),
+    date: String(row.date || '').slice(0, 10),
+    createdAt: row.createdAt || new Date().toISOString(),
+    doneAt: row.doneAt || '',
+    eventId: row.eventId || '',
+  };
+}
+
+function todoDate(value) {
+  if (value === undefined || value === null || value === '') return '';
+  const d = parseDate(value, 'date');
+  return d.slice(0, 10);
+}
+
+function todoFields(body, { requireTitle }) {
+  const out = {};
+  if (body.title !== undefined || requireTitle) {
+    const title = String(body.title || '').trim();
+    if (!title) throw new HttpError(400, 'title is required');
+    out.title = title.slice(0, 300);
+  }
+  if (body.note !== undefined) out.note = String(body.note || '').trim().slice(0, 5000);
+  if (body.category !== undefined) out.category = String(body.category || 'personal').trim() || 'personal';
+  if (body.date !== undefined) out.date = todoDate(body.date);
+  return out;
+}
+
+const londonDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+
+async function readTodos(tx, uid) {
+  const ref = todosDoc(uid);
+  const snap = tx ? await tx.get(ref) : await ref.get();
+  const items = snap.exists && Array.isArray(snap.data().items)
+    ? snap.data().items.map(cleanTodo).filter((r) => r.title)
+    : [];
+  return { ref, items };
+}
+
+// GET /todos?status=open|done|all -> { count, open: [...], done: [...] }
+app.get('/todos', wrap(async (req, res) => {
+  const status = String(req.query.status || 'all').toLowerCase();
+  if (!['open', 'done', 'all'].includes(status)) throw new HttpError(400, 'status must be open, done or all');
+  const { items } = await readTodos(null, req.uid);
+  const open = status === 'done' ? [] : items.filter((r) => !r.doneAt);
+  const done = status === 'open' ? [] : items.filter((r) => r.doneAt);
+  res.json({ status, count: open.length + done.length, open, done });
+}));
+
+// POST /todos { title, note?, category?, date? } -> 201 { todo }
+app.post('/todos', wrap(async (req, res) => {
+  const fields = todoFields(req.body || {}, { requireTitle: true });
+  const todo = await db.runTransaction(async (tx) => {
+    const { ref, items } = await readTodos(tx, req.uid);
+    if (items.length >= 1000) throw new HttpError(409, 'The to-do list is full (1000 items)');
+    const row = cleanTodo({ id: newTodoId(), ...fields, category: fields.category || 'personal', createdAt: new Date().toISOString() });
+    tx.set(ref, { items: [row, ...items], updatedAt: new Date().toISOString() });
+    return row;
+  });
+  res.status(201).json({ todo });
+}));
+
+// PATCH /todos/:id { title?, note?, category?, date?, done?: true|false } -> { todo, event?, eventRemoved? }
+app.patch('/todos/:id', wrap(async (req, res) => {
+  const body = req.body || {};
+  const fields = todoFields(body, { requireTitle: false });
+  if (body.done !== undefined && typeof body.done !== 'boolean') throw new HttpError(400, 'done must be true or false');
+  if (!Object.keys(fields).length && body.done === undefined) throw new HttpError(400, 'Nothing to change');
+  const id = String(req.params.id);
+  const out = await db.runTransaction(async (tx) => {
+    const { ref, items } = await readTodos(tx, req.uid);
+    const index = items.findIndex((r) => r.id === id);
+    if (index === -1) throw new HttpError(404, 'To-do not found');
+    let row = cleanTodo({ ...items[index], ...fields });
+    const result = {};
+    const nowIso = new Date().toISOString();
+    if (body.done === true && !row.doneAt) {
+      // Same as todoService.completeTodo: the line becomes a timeline event (source todo).
+      const eventId = newTodoId();
+      const event = stripUndefined({
+        id: eventId,
+        title: row.title,
+        description: row.note,
+        date: row.date || londonDay(), // app passes row.date as is; API fills today when blank
+        category: row.category || 'personal',
+        labels: [],
+        source: 'todo',
+        fromTodo: true,
+        nextAction: 'none',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        ownerUid: req.uid,
+        addedBy: 'bot',
+      });
+      tx.set(eventsCol(req.uid).doc(eventId), event);
+      row = { ...row, doneAt: nowIso, eventId };
+      result.event = present(event, eventId);
+    } else if (body.done === false && row.doneAt) {
+      // The app has no "undo"; the API reopens the line and removes the event only if the API made it.
+      if (row.eventId && validEventId(row.eventId)) {
+        const evRef = eventsCol(req.uid).doc(row.eventId);
+        const ev = await tx.get(evRef);
+        if (ev.exists && ev.data().addedBy === 'bot' && ev.data().fromTodo) {
+          tx.delete(evRef);
+          result.eventRemoved = row.eventId;
+        } else if (ev.exists) {
+          result.eventKept = row.eventId;
+        }
+      }
+      row = { ...row, doneAt: '', eventId: '' };
+    }
+    const next = items.slice();
+    next[index] = row;
+    tx.set(ref, { items: next, updatedAt: nowIso });
+    return { todo: row, ...result };
+  });
+  res.json(out);
+}));
+
+// DELETE /todos/:id -> { deleted } (like todoService.removeTodo; a linked event stays on the timeline)
+app.delete('/todos/:id', wrap(async (req, res) => {
+  const id = String(req.params.id);
+  await db.runTransaction(async (tx) => {
+    const { ref, items } = await readTodos(tx, req.uid);
+    if (!items.some((r) => r.id === id)) throw new HttpError(404, 'To-do not found');
+    tx.set(ref, { items: items.filter((r) => r.id !== id), updatedAt: new Date().toISOString() });
+  });
+  res.json({ deleted: id });
 }));
 
 // ---------- Word to Int (ported verbatim from src/services/wordToIntService.js; keep in sync) ----------

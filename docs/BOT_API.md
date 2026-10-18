@@ -72,13 +72,24 @@ Tickets in the same call: `"attachments": [{ "fileBase64": "<base64 or data: URL
 (or a single top-level `fileBase64` + `contentType` + `name`). Same limits as `POST /events/:id/attachments`.
 `201` → the stored event + `appLink` + `webLink`. `409` if `id` already exists.
 
-### `GET /events?from=&to=&q=&label=&limit=`
+### `GET /events?from=&to=&q=&label=&kind=&source=&limit=`
 - `from` / `to`: ISO dates (inclusive, on `date`)
-- `q`: case-insensitive text match on title, description, location, placeName, photoNote, labels
+- `q`: case-insensitive text match on title, description (poem text), location, placeName, photoNote, socialTitle, socialNote, botNote, labels
 - `label`: exact label (case-insensitive)
+- `kind`: one of
+  | kind | matches |
+  |---|---|
+  | `poem` | `hobbyType: poetry`, or `source: poem`, or a `Poem` label |
+  | `social` | `source: social` |
+  | `food` | `source: food` |
+  | `todo` | `source: todo` or `fromTodo` (ticked-off to-dos) |
+  | `memory`, `event` | `source: manual`, category not `other`, not a poem or to-do (the app stores both the same way, so they return the same set) |
+  | `other` | `source: manual` + `category: other` |
+- `source`: exact `source` match (e.g. `youtube`, `laundry`, `clip`); missing source counts as `manual`
+- All filters combine (e.g. `?kind=poem&q=love&from=2025-01-01`).
 - `limit`: default 50, max 200. Newest first.
 
-`200` → `{ "count", "events": [ … ] }`
+`200` → `{ "count", "total", "events": [ … ], "truncated"? }`. `total` = all matches before `limit`. With any of `q`/`label`/`kind`/`source`, the newest 1000 events are searched; `truncated: true` means there were more.
 
 ### `GET /events/:id`
 `200` → event + links, or `404`.
@@ -130,6 +141,27 @@ The friend accepts by typing the code on **Accept Invite**, scanning a QR of `li
 
 ### `GET /events/:id/invites`
 `200` → `{ eventId, shareId, invites: [{ code, status: pending|accepted|declined|expired, shareId, eventTitle, createdAt, expiresAt, acceptedByUid?, acceptedAt?, link, joinLink }] }`, newest first.
+
+## To-dos
+Stored where the app keeps them: `users/{uid}/settings/todos` → `{ items: [row], updatedAt }`, newest first (mirrors `src/services/todoService.js`).
+Row: `{ id: "<base36 time><6 chars>", title, note, category (default "personal"), date ("YYYY-MM-DD" or ""), createdAt, doneAt ("" if open), eventId ("" until done) }`.
+Every write is a Firestore transaction on that doc, so app items are never lost.
+
+### `GET /todos?status=open|done|all`
+Default `all`. `200` → `{ status, count, open: [row], done: [row] }`.
+
+### `POST /todos { "title", "note"?, "category"?, "date"? }`
+`201` → `{ todo }` (added at the top, like the app).
+
+### `PATCH /todos/:id { "title"?, "note"?, "category"?, "date"?, "done"?: true|false }`
+- `done: true` works like ticking it off in the app: a timeline event is created
+  `{ id (to-do id format), title, description: note, date: to-do date (today, London, if blank), category, source: "todo", fromTodo: true, nextAction: "none", addedBy: "bot" }`,
+  and the row gets `doneAt` + `eventId`. `200` → `{ todo, event }`.
+- `done: false` reopens it (`doneAt: ""`, `eventId: ""`). The app has no undo; the API deletes the linked event only if the API created it (`eventRemoved`), otherwise it is left on the timeline (`eventKept`).
+- Edits to a done item do not change its event.
+
+### `DELETE /todos/:id`
+Removes the row (like the app; a linked event stays). `200` → `{ deleted }`.
 
 ## Word to Int
 Saved words live at `users/{uid}/wordNumbers/{id}`, the same docs the app's Word to Int screen reads and writes. The numbers are worked out exactly as the app does it (the code is ported from `src/services/wordToIntService.js`, so keep the two in sync).
