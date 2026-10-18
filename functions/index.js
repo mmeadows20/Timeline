@@ -21,7 +21,7 @@ const { getStorage, getDownloadURL } = require('firebase-admin/storage');
 const { getAuth } = require('firebase-admin/auth');
 
 initializeApp();
-setGlobalOptions({ region: 'europe-west2', maxInstances: 5 });
+setGlobalOptions({ region: 'europe-west2' });
 
 const db = getFirestore();
 
@@ -402,4 +402,17 @@ app.patch('/events/:id', wrap(async (req, res) => {
 
 app.use((_req, res) => res.status(404).json({ error: 'Unknown endpoint' }));
 
-exports.api = onRequest({ cors: true, timeoutSeconds: 60, memory: '256MiB' }, app);
+// cpu: 1 is required for concurrency > 1 (fractional CPU forces concurrency 1,
+// which with few instances caused "no available instance" / 429 Rate exceeded).
+exports.api = onRequest(
+  {
+    cors: true,
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    cpu: 1,
+    concurrency: 80,
+    minInstances: 0,
+    maxInstances: 20,
+  },
+  app,
+);
