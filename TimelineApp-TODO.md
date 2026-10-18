@@ -117,6 +117,15 @@ Product map:
 - [x] Web photo quota: compress/resize on pick (`expo-image-manipulator`, max width ~1280, JPEG ~0.7; canvas fallback for blob:/data:); heavy `data:` payloads stored under `@timeline_img_{eventId}` with short refs in events list; QuotaExceededError -> clear message. **Firebase Storage still the real long-term fix.**
 - [x] + menus (Timeline / Month / Week) show Food only when toggle is on
 - [x] **Cupboard** (preview bought list / use in a meal). Expo cupboard still thin vs preview.
+- [ ] **Next — Food extras: meal-kit recipes** (18 Oct 2026, from Timeline Bot). Optional add-on in Food, not part of everyday food logging. First box: HelloFresh. Same shape later for Gousto, Mindful Chef, and other boxes.
+  One photo of a recipe card fills the event: recipe name, card number, cooking time, tags (e.g. High Protein), and the ingredient list. Link out to that recipe on the box site. Saved as a food event.
+  **Free:** photo → filled recipe card on the timeline.
+  **Paid (credits), once the free card works:**
+  - **Cooked it again?** spot the same recipe and keep a count (e.g. made 3 times).
+  - **Ratings and swaps:** would make again, or a note such as “used yoghurt instead of soured cream”.
+  - **Recipe history and favourites** from every card saved.
+  - **Shopping list** to re-make a past recipe without ordering the box.
+  **Before any paid use of the HelloFresh name or their recipe text:** check we are allowed to. Their brand and recipe content are theirs. Do not ship a paid feature that copies recipe steps or uses their logo until that is clear. A link to their page, plus the user’s own photo and notes, is the safe starting point.
 - [ ] Calories / structured nutrition - not in this pass
 
 ---
@@ -195,6 +204,8 @@ Product map:
 ---
 
 ## Next / Nice to have
+
+- [ ] **Next to build — Food extras: meal-kit recipes.** Full notes are in the Food section above. HelloFresh card photo first; Gousto and Mindful Chef later. Repeats, ratings, favourites, and a re-make shopping list are the paid parts. Check brand and recipe-content permission before those.
 
 - [x] **Poster QR into a draft event (5 Oct 2026):** Add event → QR link → Scan a poster QR, or paste the link. Opens Add event with a title, the link, a date when the code or page has one, and a place when a calendar code has one. Nothing is saved until Save. A Timeline friend-invite code is sent to Enter invite instead.
 
