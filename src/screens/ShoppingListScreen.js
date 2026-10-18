@@ -136,6 +136,16 @@ export default function ShoppingListScreen() {
     persist({ ...state, got: { ...state.got, [line.id]: !line.got } });
   }
 
+  function setGotLines(groupLines) {
+    const got = { ...(state.got || {}) };
+    const open = groupLines.filter((line) => !line.dropped);
+    const allIn = open.length > 0 && open.every((line) => line.got);
+    open.forEach((line) => {
+      got[line.id] = !allIn;
+    });
+    persist({ ...state, got });
+  }
+
   function setDropped(line) {
     persist({
       ...state,
@@ -566,7 +576,11 @@ export default function ShoppingListScreen() {
         </View>
       ) : null}
 
-      {lines.length === 0 ? <Text style={styles.intro}>Turn a meal on to build the list.</Text> : null}
+      {lines.length === 0 ? <Text style={styles.intro}>Turn a meal on to build the list.</Text> : (
+        <Text style={styles.intro}>
+          {lines.filter((line) => !line.dropped && line.got).length} of {lines.filter((line) => !line.dropped).length} in the basket. Tick each one as you add it.
+        </Text>
+      )}
 
       {group === 'meal'
         ? recipes.filter((r) => selectedOn(r.id)).map((recipe) => (
@@ -595,13 +609,29 @@ export default function ShoppingListScreen() {
               ))}
             </View>
           ))
-        : basket.map((groupLines) => (
-            <View key={groupLines[0].id} style={styles.card}>
-              <Text style={styles.mealName}>{displayName(groupLines[0])}</Text>
-              <Text style={styles.meta}>{groupLines.map((line) => line.mealName).join(' · ')}</Text>
-              <Text style={styles.meta}>{formatPence(groupLines.reduce((sum, line) => sum + lineCost(line), 0))} guide</Text>
-            </View>
-          ))}
+        : basket.map((groupLines) => {
+            const open = groupLines.filter((line) => !line.dropped);
+            const inBasket = open.length > 0 && open.every((line) => line.got);
+            return (
+              <View key={groupLines[0].id} style={styles.card}>
+                <TouchableOpacity
+                  style={styles.tickRow}
+                  onPress={() => setGotLines(groupLines)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: inBasket }}
+                >
+                  <View style={[styles.tickBox, inBasket && styles.tickBoxOn]}>
+                    {inBasket ? <Text style={styles.tickMark}>✓</Text> : null}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.mealName, inBasket && styles.struck]}>{displayName(groupLines[0])}</Text>
+                    <Text style={styles.meta}>{groupLines.map((line) => line.mealName).join(' · ')}</Text>
+                    <Text style={styles.meta}>{inBasket ? 'In the basket' : 'Not in the basket yet'} · {formatPence(groupLines.reduce((sum, line) => sum + lineCost(line), 0))}</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
 
       <TouchableOpacity style={styles.primary} onPress={markPricesChecked}>
         <Text style={styles.primaryText}>Prices checked, no longer estimated</Text>
@@ -680,21 +710,27 @@ function LineCard({
 }) {
   return (
     <View style={[styles.card, line.dropped && { opacity: 0.6 }]}>
-      <View style={styles.rowBetween}>
-        <TouchableOpacity style={[styles.toggle, line.got && styles.toggleOn]} disabled={line.dropped} onPress={onGot}>
-          <Text style={[styles.toggleText, line.got && styles.toggleOnText]}>{line.got ? 'In' : 'Add'}</Text>
-        </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.tickRow}
+        disabled={line.dropped}
+        onPress={onGot}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: !!line.got }}
+      >
+        <View style={[styles.tickBox, line.got && styles.tickBoxOn]}>
+          {line.got ? <Text style={styles.tickMark}>✓</Text> : null}
+        </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.mealName, line.dropped && styles.struck]}>
+          <Text style={[styles.mealName, (line.got || line.dropped) && styles.struck]}>
             {displayName(line)}
             {line.swap.trim() ? <Text style={styles.meta}> · instead of {line.name}</Text> : null}
           </Text>
           <Text style={styles.meta}>
-            {line.qty} · for {line.mealName}
+            {line.got ? 'In the basket' : 'Not in the basket yet'} · {line.qty} · for {line.mealName}
             {line.checked ? ' · price checked' : line.entered ? ' · typed, not checked yet' : ' · estimate'}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
       <Text style={styles.label}>{line.checked ? 'Checked £' : 'Price £'}</Text>
       <TextInput
         style={[styles.input, { maxWidth: 140 }]}
@@ -762,6 +798,18 @@ function screenStyles(c) {
     mealHead: { color: c.text, fontWeight: '700', marginTop: 16 },
     meta: { color: c.faint, fontSize: 12, marginTop: 2 },
     struck: { textDecorationLine: 'line-through' },
+    tickRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    tickBox: {
+      width: 28,
+      height: 28,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: c.blue,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tickBoxOn: { backgroundColor: c.blue },
+    tickMark: { color: '#fff', fontWeight: '800', fontSize: 16 },
     label: { color: c.faint, fontSize: 12, marginTop: 8, marginBottom: 4 },
     input: {
       backgroundColor: c.bg,
