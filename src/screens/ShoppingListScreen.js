@@ -40,7 +40,7 @@ export default function ShoppingListScreen() {
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftPaid, setDraftPaid] = useState('');
-  const [draftItems, setDraftItems] = useState('');
+  const [draftBox, setDraftBox] = useState(false);
   const [swapFor, setSwapFor] = useState(null);
   const [swapDraft, setSwapDraft] = useState('');
   const [group, setGroup] = useState('meal');
@@ -74,16 +74,22 @@ export default function ShoppingListScreen() {
   const shopLabel = SHOPS.find((s) => s.id === shop)?.label || 'Shop';
 
   const totals = useMemo(() => {
-    if (!state) return { box: 0, shopPence: 0, saved: 0, missingBox: false, meals: 0 };
+    if (!state) return { box: 0, shopPence: 0, otherPence: 0, saved: 0, missingBox: false, boxMeals: 0, otherMeals: 0 };
     const chosen = recipes.filter((r) => !state.selected || state.selected.includes(r.id));
-    const box = chosen.reduce((sum, r) => sum + paidFor(r, state), 0);
-    const shopPence = lines.reduce((sum, line) => sum + lineCost(line), 0);
+    const boxes = chosen.filter((r) => r.isBox);
+    const others = chosen.filter((r) => !r.isBox);
+    const boxIds = new Set(boxes.map((r) => r.id));
+    const box = boxes.reduce((sum, r) => sum + paidFor(r, state), 0);
+    const shopPence = lines.filter((line) => boxIds.has(line.mealId)).reduce((sum, line) => sum + lineCost(line), 0);
+    const otherPence = lines.filter((line) => !boxIds.has(line.mealId)).reduce((sum, line) => sum + lineCost(line), 0);
     return {
       box,
       shopPence,
+      otherPence,
       saved: box - shopPence,
-      missingBox: chosen.some((r) => !paidFor(r, state)),
-      meals: chosen.length,
+      missingBox: boxes.some((r) => !paidFor(r, state)),
+      boxMeals: boxes.length,
+      otherMeals: others.length,
     };
   }, [recipes, lines, state]);
 
@@ -148,8 +154,8 @@ export default function ShoppingListScreen() {
       return;
     }
     const id = `card-${Date.now()}`;
-    const card = recipeFromItems(name, items, id, 'Your card');
-    const paid = { ...state.paid, [id]: poundsToPence(draftPaid) };
+    const card = recipeFromItems(name, items, id, draftBox ? 'Your box' : 'Your list', draftBox);
+    const paid = draftBox ? { ...state.paid, [id]: poundsToPence(draftPaid) } : state.paid;
     const current = recipes.filter((r) => selectedOn(r.id)).map((r) => r.id);
     persist({
       ...state,
@@ -160,6 +166,7 @@ export default function ShoppingListScreen() {
     setDraftName('');
     setDraftPaid('');
     setDraftItems('');
+    setDraftBox(false);
     setAdding(false);
   }
 
@@ -193,6 +200,40 @@ export default function ShoppingListScreen() {
     seen.get(key).push(line);
   });
 
+  function renderMeal(recipe) {
+    const on = selectedOn(recipe.id);
+    const paid = paidFor(recipe, state);
+    return (
+      <View key={recipe.id} style={styles.card}>
+        <View style={styles.rowBetween}>
+          <TouchableOpacity style={[styles.toggle, on && styles.toggleOn]} onPress={() => toggleMeal(recipe.id)}>
+            <Text style={[styles.toggleText, on && styles.toggleOnText]}>{on ? 'On' : 'Off'}</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.mealName}>{recipe.name}</Text>
+            <Text style={styles.meta}>{recipe.kit}{recipe.example ? ' · example' : ''}</Text>
+          </View>
+          <TouchableOpacity onPress={() => removeRecipe(recipe)}>
+            <Text style={styles.meta}>Remove</Text>
+          </TouchableOpacity>
+        </View>
+        {recipe.isBox ? (
+          <>
+            <Text style={styles.label}>Paid for the box (£)</Text>
+            <TextInput
+              style={styles.input}
+              defaultValue={(paid / 100).toFixed(2)}
+              key={`${recipe.id}-${paid}`}
+              onEndEditing={(e) => setPaid(recipe.id, e.nativeEvent.text)}
+              keyboardType="decimal-pad"
+              placeholderTextColor={colors.faint}
+            />
+          </>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Text style={styles.heading}>Shopping list</Text>
@@ -203,19 +244,28 @@ export default function ShoppingListScreen() {
       <View style={styles.summary}>
         <Text style={styles.summaryLabel}>Box versus the shop</Text>
         <Text style={styles.summaryValue}>
-          {totals.missingBox
-            ? 'Add the box price'
+          {totals.boxMeals === 0
+            ? 'No box meals on this list'
+            : totals.missingBox
+              ? 'Add the box price'
+              : totals.saved > 0
+                ? `${formatPence(totals.saved)} less than the box`
+                : 'Shop guide is not under the box'}
+        </Text>
+        <Text style={styles.intro}>
+          {totals.boxMeals} box meal{totals.boxMeals === 1 ? '' : 's'} · box {formatPence(totals.box)} · shop guide {formatPence(totals.shopPence)}
+        </Text>
+        {totals.otherMeals ? (
+          <Text style={styles.intro}>
+            {totals.otherMeals} other meal{totals.otherMeals === 1 ? '' : 's'} · shop guide {formatPence(totals.otherPence)}. Not counted as a box.
+          </Text>
+        ) : null}
+        <Text style={styles.intro}>
+          {totals.boxMeals === 0
+            ? 'The box comparison only includes meals saved as a meal-kit card. '
             : totals.saved > 0
-              ? `${formatPence(totals.saved)} less than the box`
-              : 'Shop guide is not under the box'}
-        </Text>
-        <Text style={styles.intro}>
-          {totals.meals} meal{totals.meals === 1 ? '' : 's'} · box {formatPence(totals.box)} · shop guide {formatPence(totals.shopPence)}
-        </Text>
-        <Text style={styles.intro}>
-          {totals.saved > 0
-            ? `Meal extras are ${REMAKE_PERK_CREDITS} credits once that perk is on. You are ahead if those ${REMAKE_PERK_CREDITS} credits cost less than ${formatPence(totals.saved)}. `
-            : 'Type what you paid for each box to compare it with the shop guide. '}
+              ? `Meal extras are ${REMAKE_PERK_CREDITS} credits once that perk is on. You are ahead if those ${REMAKE_PERK_CREDITS} credits cost less than ${formatPence(totals.saved)}. `
+              : 'Type what you paid for each box to compare it with the shop guide. '}
           Guide prices are typical supermarket figures, not a live till.
         </Text>
       </View>
@@ -231,45 +281,39 @@ export default function ShoppingListScreen() {
         <View style={styles.card}>
           <Text style={styles.label}>Meal name</Text>
           <TextInput style={styles.input} value={draftName} onChangeText={setDraftName} placeholder="Lemon chicken tray" placeholderTextColor={colors.faint} />
-          <Text style={styles.label}>What you paid for the box (£)</Text>
-          <TextInput style={styles.input} value={draftPaid} onChangeText={setDraftPaid} placeholder="13.99" placeholderTextColor={colors.faint} keyboardType="decimal-pad" />
           <Text style={styles.label}>Ingredients, commas or new lines</Text>
           <TextInput style={[styles.input, styles.items]} value={draftItems} onChangeText={setDraftItems} placeholder="Chicken breast, lemon, rice" placeholderTextColor={colors.faint} multiline />
+          <View style={styles.row}>
+            <TouchableOpacity style={[styles.chip, !draftBox && styles.chipOn]} onPress={() => setDraftBox(false)}>
+              <Text style={[styles.chipText, !draftBox && styles.chipOnText]}>Just ingredients</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.chip, draftBox && styles.chipOn]} onPress={() => setDraftBox(true)}>
+              <Text style={[styles.chipText, draftBox && styles.chipOnText]}>Meal-kit box</Text>
+            </TouchableOpacity>
+          </View>
+          {draftBox ? (
+            <>
+              <Text style={styles.label}>What you paid for the box (£)</Text>
+              <TextInput style={styles.input} value={draftPaid} onChangeText={setDraftPaid} placeholder="13.99" placeholderTextColor={colors.faint} keyboardType="decimal-pad" />
+            </>
+          ) : null}
           <TouchableOpacity style={styles.primary} onPress={addCard}>
             <Text style={styles.primaryText}>Add to the list</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
-      {recipes.map((recipe) => {
-        const on = selectedOn(recipe.id);
-        const paid = paidFor(recipe, state);
-        return (
-          <View key={recipe.id} style={styles.card}>
-            <View style={styles.rowBetween}>
-              <TouchableOpacity style={[styles.toggle, on && styles.toggleOn]} onPress={() => toggleMeal(recipe.id)}>
-                <Text style={[styles.toggleText, on && styles.toggleOnText]}>{on ? 'On' : 'Off'}</Text>
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.mealName}>{recipe.name}</Text>
-                <Text style={styles.meta}>{recipe.kit}{recipe.example ? ' · example' : ''}</Text>
-              </View>
-              <TouchableOpacity onPress={() => removeRecipe(recipe)}>
-                <Text style={styles.meta}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.label}>Paid for the box (£)</Text>
-            <TextInput
-              style={styles.input}
-              defaultValue={(paid / 100).toFixed(2)}
-              key={`${recipe.id}-${paid}`}
-              onEndEditing={(e) => setPaid(recipe.id, e.nativeEvent.text)}
-              keyboardType="decimal-pad"
-              placeholderTextColor={colors.faint}
-            />
-          </View>
-        );
-      })}
+      <Text style={styles.section}>Box meals</Text>
+      <Text style={styles.intro}>Only meals saved as a meal-kit card. These are the ones compared with what you paid for the box.</Text>
+      {recipes.some((r) => r.isBox) ? recipes.filter((r) => r.isBox).map((recipe) => renderMeal(recipe)) : (
+        <Text style={styles.intro}>None yet. On Add food, choose Meal kit before you save.</Text>
+      )}
+
+      <Text style={styles.section}>Other meals</Text>
+      <Text style={styles.intro}>Reorder the ingredients if you want. These stay off the box comparison.</Text>
+      {recipes.some((r) => !r.isBox) ? recipes.filter((r) => !r.isBox).map((recipe) => renderMeal(recipe)) : (
+        <Text style={styles.intro}>No other food events on the list.</Text>
+      )}
 
       <View style={styles.rowBetween}>
         <Text style={styles.section}>This shop</Text>
@@ -295,7 +339,7 @@ export default function ShoppingListScreen() {
       {group === 'meal'
         ? recipes.filter((r) => selectedOn(r.id)).map((recipe) => (
             <View key={recipe.id}>
-              <Text style={styles.mealHead}>{recipe.name}</Text>
+              <Text style={styles.mealHead}>{recipe.name}{recipe.isBox ? '' : ' · not a box'}</Text>
               {lines.filter((line) => line.mealId === recipe.id).map((line) => (
                 <LineCard
                   key={line.id}

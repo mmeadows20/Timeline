@@ -48,6 +48,7 @@ export function exampleRecipes() {
       id: 'ex-lemon-chicken',
       name: 'Lemon chicken tray',
       kit: 'Example card',
+      isBox: true,
       paidPence: 1399,
       example: true,
       ingredients: [
@@ -64,6 +65,7 @@ export function exampleRecipes() {
       id: 'ex-beef-pasta',
       name: 'Beef mushroom pasta',
       kit: 'Example card',
+      isBox: true,
       paidPence: 1449,
       example: true,
       ingredients: [
@@ -80,6 +82,7 @@ export function exampleRecipes() {
       id: 'ex-halloumi',
       name: 'Halloumi couscous',
       kit: 'Example card',
+      isBox: true,
       paidPence: 1199,
       example: true,
       ingredients: [
@@ -114,7 +117,7 @@ export function poundsToPence(raw) {
   return Math.round(n * 100);
 }
 
-export function recipeFromItems(name, items, id, kit) {
+export function recipeFromItems(name, items, id, kit, isBox) {
   const parts = String(items || '')
     .split(/[,;\n]/)
     .map((s) => s.trim())
@@ -124,6 +127,7 @@ export function recipeFromItems(name, items, id, kit) {
     id,
     name: name || 'Saved meal',
     kit: kit || 'Your card',
+    isBox: !!isBox,
     paidPence: 0,
     ingredients: names.map((part, i) => {
       const g = guessGuide(part);
@@ -140,7 +144,8 @@ export function recipesFromEvents(events) {
       const name = event.recipeName || event.title || 'Saved meal';
       const items = event.foodItems || event.description || name;
       const kit = event.mealKit ? 'Meal-kit card' : 'Saved meal';
-      return recipeFromItems(name, items, `food-${event.id}`, kit);
+      const card = recipeFromItems(name, items, `food-${event.id}`, kit, !!event.mealKit);
+      return card;
     });
 }
 
@@ -244,8 +249,8 @@ export function listText(recipes, lines, shop, state) {
   recipes.forEach((meal) => {
     const mealLines = lines.filter((line) => line.mealId === meal.id);
     if (!mealLines.length) return;
-    const paid = paidFor(meal, state);
-    const box = paid > 0 ? ` (box ${formatPence(paid)})` : '';
+    const paid = meal.isBox ? paidFor(meal, state) : 0;
+    const box = meal.isBox && paid > 0 ? ` (box ${formatPence(paid)})` : '';
     chunks.push(`${meal.name}${box}`);
     mealLines.forEach((line) => {
       const mark = line.dropped ? 'skip' : line.got ? 'got' : ' ';
