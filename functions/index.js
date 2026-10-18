@@ -9,6 +9,9 @@
  * src/services/eventService.js saveEvent(), plus addedBy: 'bot'.
  * Photos go to Storage at users/{uid}/events/{eventId}/imageUri.jpg
  * (same path as src/services/photoStorage.js).
+ * Tickets / PDFs go to users/{uid}/events/{eventId}/attachments/<name> and are listed
+ * in event.attachments [{ name, contentType, size, storagePath, url, addedAt, addedBy }].
+ * Share invites mirror shareService.createEventShare (sharedEvents + eventInvites/{code}).
  */
 const crypto = require('crypto');
 const express = require('express');
@@ -28,6 +31,18 @@ const db = getFirestore();
 const APP_SCHEME = 'timelineapp'; // app.json "scheme"
 const RATE_LIMIT_PER_MINUTE = 60;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // matches storage.rules
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // tickets / attachments (PDF or image)
+const MAX_ATTACHMENTS = 10;
+const ATTACHMENT_TYPES = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+};
+const INVITE_DAYS = 14; // same as shareService.createEventShare
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // same as shareService
+const FRIEND_COLOUR = '#f472b6'; // FRIEND_COLOURS[0] in shareService
 const MAX_LIST = 200;
 const SCAN_CAP = 1000;
 
@@ -208,12 +223,106 @@ async function readImage(req) {
 async function storeImage(uid, eventId, { buffer, contentType }) {
   if (!buffer || !buffer.length) throw new HttpError(400, 'Empty image');
   if (buffer.length > MAX_IMAGE_BYTES) throw new HttpError(413, 'Image must be under 5 MB');
-  if (!/^image\//.test(contentType || '')) throw new HttpError(415, 'Only image/* uploads are allowed');
+  if (!/^image\//.test(contentType || '')) throw new HttpError(415, 'Only image/* uploads are allowed here; send PDFs and tickets to POST /events/:id/attachments or as attachments on POST /events');
   const storagePath = `users/${uid}/events/${eventId}/imageUri.jpg`;
   const file = getStorage().bucket().file(storagePath);
   await file.save(buffer, { contentType, resumable: false, metadata: { metadata: { addedBy: 'bot' } } });
   const downloadUrl = await getDownloadURL(file);
   return { storagePath, downloadUrl };
+}
+
+// ---------- attachments (tickets, PDFs) ----------
+
+function safeFileName(name, contentType) {
+  const ext = ATTACHMENT_TYPES[contentType];
+  let base = String(name || '').split(/[\\/]/).pop().replace(/\.[A-Za-z0-9]{1,5}$/, '');
+  base = base.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 80);
+  return `${base || 'ticket'}.${ext}`;
+}
+
+function decodeBase64File(input, contentType, name) {
+  let data = String(input || '');
+  let type = contentType;
+  const m = data.match(/^data:([^;]+);base64,(.*)$/s);
+  if (m) {
+    type = type || m[1];
+    data = m[2];
+  }
+  return { buffer: Buffer.from(data, 'base64'), contentType: String(type || 'application/pdf').toLowerCase(), name };
+}
+
+function readMultipartFile(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const fields = {};
+    let file = null;
+    let tooBig = false;
+    const bb = Busboy({ headers: req.headers, limits: { files: 1, fileSize: maxBytes + 1 } });
+    bb.on('field', (n, v) => { fields[n] = v; });
+    bb.on('file', (_n, stream, info) => {
+      const chunks = [];
+      stream.on('limit', () => { tooBig = true; });
+      stream.on('data', (c) => chunks.push(c));
+      stream.on('end', () => {
+        file = { buffer: Buffer.concat(chunks), contentType: String(info.mimeType || '').toLowerCase(), name: info.filename };
+      });
+    });
+    bb.on('error', reject);
+    bb.on('close', () => (tooBig ? reject(new HttpError(413, 'File must be under 10 MB')) : resolve({ fields, file })));
+    bb.end(req.rawBody);
+  });
+}
+
+/** Reads one attachment from JSON base64, multipart/form-data, or a raw application/pdf / image body. */
+async function readAttachment(req) {
+  const type = String(req.get('content-type') || '').toLowerCase();
+  if (type.startsWith('multipart/form-data')) {
+    const { fields, file } = await readMultipartFile(req, MAX_FILE_BYTES);
+    if (!file) throw new HttpError(400, 'multipart upload needs one file field');
+    return { ...file, name: fields.name || file.name };
+  }
+  if (type.startsWith('application/pdf') || type.startsWith('image/')) {
+    return { buffer: req.rawBody, contentType: type.split(';')[0], name: req.query.name };
+  }
+  const body = req.body || {};
+  const b64 = body.fileBase64 || body.pdfBase64 || body.base64;
+  if (!b64) throw new HttpError(400, 'Send JSON { fileBase64, contentType, name? }, multipart/form-data, or a raw application/pdf body');
+  return decodeBase64File(b64, body.contentType, body.name || body.fileName);
+}
+
+async function storeAttachment(uid, eventId, { buffer, contentType, name }, existing = []) {
+  if (!buffer || !buffer.length) throw new HttpError(400, 'Empty file');
+  if (buffer.length > MAX_FILE_BYTES) throw new HttpError(413, 'File must be under 10 MB');
+  if (!ATTACHMENT_TYPES[contentType]) {
+    throw new HttpError(415, `contentType must be one of: ${Object.keys(ATTACHMENT_TYPES).join(', ')}`);
+  }
+  if (contentType === 'application/pdf' && buffer.slice(0, 5).toString('latin1') !== '%PDF-') {
+    throw new HttpError(400, 'File is not a valid PDF (missing %PDF- header)');
+  }
+  if (existing.length >= MAX_ATTACHMENTS) throw new HttpError(409, `An event can have at most ${MAX_ATTACHMENTS} attachments`);
+  let fileName = safeFileName(name, contentType);
+  if (existing.some((a) => a && a.name === fileName)) fileName = `${Date.now().toString(36)}-${fileName}`;
+  const storagePath = `users/${uid}/events/${eventId}/attachments/${fileName}`;
+  const file = getStorage().bucket().file(storagePath);
+  await file.save(buffer, { contentType, resumable: false, metadata: { metadata: { addedBy: 'bot' } } });
+  const url = await getDownloadURL(file);
+  return {
+    name: fileName,
+    contentType,
+    size: buffer.length,
+    storagePath,
+    url,
+    addedAt: new Date().toISOString(),
+    addedBy: 'bot',
+  };
+}
+
+/** Keep the shared copy in step so friends who accepted the invite can open the ticket too. */
+async function syncSharedAttachments(event) {
+  if (!event || !event.shareId) return;
+  const ref = db.collection('sharedEvents').doc(event.shareId);
+  const snap = await ref.get();
+  if (!snap.exists || snap.data().createdByUid !== event.ownerUid) return;
+  await ref.update({ attachments: event.attachments || [], updatedAt: new Date().toISOString() });
 }
 
 function validEventId(id) {
@@ -223,7 +332,7 @@ function validEventId(id) {
 // ---------- app ----------
 
 const app = express();
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '15mb' })); // 10 MB file as base64 is ~13.4 MB
 
 const wrap = (fn) => (req, res) =>
   Promise.resolve(fn(req, res)).catch((e) => {
@@ -340,6 +449,20 @@ app.post('/events', wrap(async (req, res) => {
     fields.imageUri = downloadUrl;
   }
 
+  // Optional tickets / PDFs in the same call: attachments: [{ fileBase64, contentType, name }]
+  let attachments;
+  if (body.attachments !== undefined || body.fileBase64 || body.pdfBase64) {
+    const list = body.attachments !== undefined ? body.attachments : [body];
+    if (!Array.isArray(list)) throw new HttpError(400, 'attachments must be an array of { fileBase64, contentType, name }');
+    if (list.length > MAX_ATTACHMENTS) throw new HttpError(400, `At most ${MAX_ATTACHMENTS} attachments`);
+    attachments = [];
+    for (const a of list) {
+      const b64 = a && (a.fileBase64 || a.pdfBase64 || a.base64);
+      if (!b64) throw new HttpError(400, 'Each attachment needs fileBase64 (+ contentType, name)');
+      attachments.push(await storeAttachment(req.uid, id, decodeBase64File(b64, a.contentType, a.name || a.fileName), attachments));
+    }
+  }
+
   const now = new Date().toISOString();
   const event = stripUndefined({
     description: '',
@@ -352,6 +475,7 @@ app.post('/events', wrap(async (req, res) => {
     nextAction: fields.nextAction || 'none',
     createdAt: now,
     updatedAt: now,
+    attachments,
     ownerUid: req.uid,
     addedBy: 'bot',
   });
@@ -405,6 +529,245 @@ app.patch('/events/:id', wrap(async (req, res) => {
   const update = { ...fields, updatedAt: new Date().toISOString(), ownerUid: req.uid };
   await ref.set(update, { merge: true });
   res.json(present({ ...snap.data(), ...update }, snap.id));
+}));
+
+// POST /events/:id/attachments -> { attachment, attachments }
+app.post('/events/:id/attachments', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const ref = eventsCol(req.uid).doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const existing = Array.isArray(snap.data().attachments) ? snap.data().attachments : [];
+  const attachment = await storeAttachment(req.uid, snap.id, await readAttachment(req), existing);
+  const attachments = [...existing, attachment];
+  const updatedAt = new Date().toISOString();
+  await ref.set({ attachments, updatedAt }, { merge: true });
+  await syncSharedAttachments({ ...snap.data(), attachments, ownerUid: req.uid });
+  res.status(201).json({ eventId: snap.id, attachment, attachments });
+}));
+
+// DELETE /events/:id/attachments/:name -> { attachments }
+app.delete('/events/:id/attachments/:name', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const ref = eventsCol(req.uid).doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const existing = Array.isArray(snap.data().attachments) ? snap.data().attachments : [];
+  const hit = existing.find((a) => a && a.name === req.params.name);
+  if (!hit) throw new HttpError(404, 'Attachment not found');
+  if (hit.storagePath && hit.storagePath.startsWith(`users/${req.uid}/events/${snap.id}/`)) {
+    await getStorage().bucket().file(hit.storagePath).delete({ ignoreNotFound: true });
+  }
+  const attachments = existing.filter((a) => a !== hit);
+  await ref.set({ attachments, updatedAt: new Date().toISOString() }, { merge: true });
+  await syncSharedAttachments({ ...snap.data(), attachments, ownerUid: req.uid });
+  res.json({ eventId: snap.id, attachments });
+}));
+
+// ---------- share invites (mirrors src/services/shareService.js createEventShare) ----------
+
+function makeInviteCode(length = 6) {
+  let code = '';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i += 1) code += CODE_CHARS[bytes[i] % CODE_CHARS.length];
+  return code;
+}
+
+function normalizeHandle(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 24);
+}
+
+/** Server version of currentParticipantProfile(): cloud profile settings, then Auth record. */
+async function ownerParticipant(uid) {
+  let profile = {};
+  try {
+    const p = await db.collection('users').doc(uid).collection('settings').doc('profile').get();
+    if (p.exists) profile = p.data() || {};
+  } catch (_) { /* ignore */ }
+  let user = {};
+  try {
+    user = await getAuth().getUser(uid);
+  } catch (_) { /* ignore */ }
+  const handle = normalizeHandle(profile.handle);
+  const hasHandle = handle.length >= 3;
+  const displayName = profile.displayName
+    || (hasHandle ? `@${handle}` : '')
+    || user.displayName
+    || (user.email ? user.email.split('@')[0] : '')
+    || 'Friend';
+  const initial = (displayName || user.email || 'F').replace(/^@/, '').charAt(0).toUpperCase();
+  return stripUndefined({
+    uid,
+    displayName,
+    handle: hasHandle ? handle : undefined,
+    email: hasHandle ? undefined : user.email || undefined,
+    initial,
+    colour: FRIEND_COLOUR,
+  });
+}
+
+function inviteLinks(code) {
+  const c = String(code || '').toUpperCase();
+  return { link: `${APP_SCHEME}://share/${c}`, joinLink: `${APP_SCHEME}://join/${c}` };
+}
+
+function inviteView(d) {
+  const v = d.data ? d.data() : d;
+  const code = v.code || d.id;
+  const expired = v.expiresAt && new Date(v.expiresAt).getTime() < Date.now();
+  return {
+    code,
+    status: v.status === 'pending' && expired ? 'expired' : v.status,
+    shareId: v.shareId,
+    eventTitle: v.eventTitle,
+    createdAt: toIso(v.createdAt),
+    expiresAt: toIso(v.expiresAt),
+    acceptedByUid: v.acceptedByUid,
+    acceptedAt: toIso(v.acceptedAt),
+    ...inviteLinks(code),
+  };
+}
+
+// POST /events/:id/invite -> { code, link, joinLink, shareId, expiresAt, invite, howToAccept }
+app.post('/events/:id/invite', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const uid = req.uid;
+  const ref = eventsCol(uid).doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const event = { ...snap.data(), id: snap.id };
+  if (event.source === 'shared' || (event.sharedFrom && event.sharedFrom !== uid)) {
+    throw new HttpError(409, 'This event was shared with you by a friend; only its creator can invite people');
+  }
+
+  const now = new Date();
+  const expires = new Date(now.getTime() + INVITE_DAYS * 24 * 60 * 60 * 1000);
+  let code = makeInviteCode(6);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (!(await db.collection('eventInvites').doc(code).get()).exists) break;
+    code = makeInviteCode(6);
+  }
+
+  const me = await ownerParticipant(uid);
+  let shareId = event.shareId || null;
+  let shared = null;
+  if (shareId) {
+    const s = await db.collection('sharedEvents').doc(shareId).get();
+    if (s.exists && s.data().createdByUid === uid) {
+      shared = s.data();
+      const patch = { updatedAt: now.toISOString() };
+      if (!(shared.participantUids || []).includes(uid)) {
+        patch.participantUids = FieldValue.arrayUnion(uid);
+        patch[`participants.${uid}`] = me;
+      }
+      if (Array.isArray(event.attachments)) patch.attachments = event.attachments;
+      await s.ref.update(patch);
+    } else {
+      shareId = null;
+    }
+  }
+  if (!shareId) {
+    shareId = `share_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    shared = stripUndefined({
+      title: event.title || 'Shared event',
+      description: event.description || '',
+      date: toIso(event.date) || now.toISOString(),
+      category: event.category || 'personal',
+      createdByUid: uid,
+      createdByName: me.displayName,
+      createdByHandle: me.handle,
+      createdByEmail: me.email,
+      sourceEventId: event.id,
+      participantUids: [uid],
+      participants: { [uid]: me },
+      status: 'active',
+      colour: '#8b5cf6',
+      attachments: Array.isArray(event.attachments) && event.attachments.length ? event.attachments : undefined,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    await db.collection('sharedEvents').doc(shareId).set(shared);
+  }
+
+  const invite = stripUndefined({
+    shareId,
+    fromUid: uid,
+    fromName: me.displayName,
+    fromHandle: me.handle,
+    fromEmail: me.email,
+    code,
+    status: 'pending',
+    eventTitle: (shared && shared.title) || event.title || 'Shared event',
+    createdAt: now.toISOString(),
+    expiresAt: expires.toISOString(),
+    addedBy: 'bot',
+  });
+  await db.collection('eventInvites').doc(code).create(invite);
+
+  await ref.set({
+    shareId,
+    isShared: true,
+    sharedFrom: event.sharedFrom || uid,
+    updatedAt: now.toISOString(),
+  }, { merge: true });
+
+  res.status(201).json({
+    eventId: event.id,
+    shareId,
+    code,
+    ...inviteLinks(code),
+    expiresAt: invite.expiresAt,
+    invite: inviteView(invite),
+    howToAccept: `Your friend opens the Timeline app, goes to Accept Invite and types the code ${code}, scans the QR for ${inviteLinks(code).link}, or taps that link on their phone. The code works once and expires in ${INVITE_DAYS} days.`,
+  });
+}));
+
+// GET /events/:id/invites -> { shareId, invites: [...] }
+app.get('/events/:id/invites', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const snap = await eventsCol(req.uid).doc(req.params.id).get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const shareId = snap.data().shareId;
+  if (!shareId) return res.json({ eventId: snap.id, shareId: null, invites: [] });
+  const q = await db.collection('eventInvites').where('shareId', '==', shareId).get();
+  const invites = q.docs
+    .filter((d) => d.data().fromUid === req.uid)
+    .map(inviteView)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  res.json({ eventId: snap.id, shareId, invites });
+}));
+
+// DELETE /events/:id -> only bot-added events. Removes its files, pending invites, and a share nobody joined.
+app.delete('/events/:id', wrap(async (req, res) => {
+  if (!validEventId(req.params.id)) throw new HttpError(400, 'Invalid id');
+  const ref = eventsCol(req.uid).doc(req.params.id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'Not found');
+  const event = snap.data();
+  if (event.addedBy !== 'bot') throw new HttpError(403, 'Only events added by the bot can be deleted through the API');
+  const removed = { files: 0, invites: 0, sharedEvent: false };
+  const [files] = await getStorage().bucket().getFiles({ prefix: `users/${req.uid}/events/${snap.id}/` });
+  await Promise.all(files.map((f) => f.delete({ ignoreNotFound: true })));
+  removed.files = files.length;
+  if (event.shareId) {
+    const s = await db.collection('sharedEvents').doc(event.shareId).get();
+    if (s.exists && s.data().createdByUid === req.uid) {
+      const inv = await db.collection('eventInvites').where('shareId', '==', event.shareId).get();
+      for (const d of inv.docs) {
+        if (d.data().fromUid === req.uid && d.data().status === 'pending') {
+          await d.ref.delete();
+          removed.invites += 1;
+        }
+      }
+      const others = (s.data().participantUids || []).filter((u) => u !== req.uid);
+      if (!others.length) {
+        await s.ref.delete();
+        removed.sharedEvent = true;
+      }
+    }
+  }
+  await ref.delete();
+  res.json({ deleted: snap.id, removed });
 }));
 
 // ---------- Word to Int (ported verbatim from src/services/wordToIntService.js; keep in sync) ----------

@@ -16,7 +16,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { classifyYearBubbleKind, washStatusLabel, getEvents, saveEvent, getNextActionLabel } from '../services/eventService';
 import EventLabelChips from '../components/EventLabelChips';
 import EventLinkPicker from '../components/EventLinkPicker';
-import { copyTextToClipboard } from '../services/shareService';
+import { copyTextToClipboard, getSharedEvent } from '../services/shareService';
 import { normalizeSocialUrl } from '../services/socialService';
 import { formatFullDate, getDateFormat, DATE_FORMAT_DMY } from '../services/dateFormat';
 import PhotoView from '../components/PhotoView';
@@ -78,6 +78,7 @@ export default function EventViewScreen({ navigation, route }) {
   const [linkLoading, setLinkLoading] = useState(linkOnly);
   const [linked, setLinked] = useState([]);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [sharedFiles, setSharedFiles] = useState([]);
 
   const loadLive = useCallback(async () => {
     const id = seed?.id;
@@ -101,6 +102,21 @@ export default function EventViewScreen({ navigation, route }) {
       loadLive();
     }, [loadLive])
   );
+
+  // Tickets / PDFs: own events carry event.attachments; a friend's copy reads them from the shared event.
+  useEffect(() => {
+    let live = true;
+    setSharedFiles([]);
+    if (!event?.shareId || (Array.isArray(event.attachments) && event.attachments.length)) return undefined;
+    getSharedEvent(event.shareId)
+      .then((shared) => {
+        if (live && Array.isArray(shared?.attachments)) setSharedFiles(shared.attachments);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [event?.shareId, event?.attachments]);
 
   useEffect(() => {
     getDateFormat().then(setDateFormat).catch(() => setDateFormat(DATE_FORMAT_DMY));
@@ -160,6 +176,10 @@ export default function EventViewScreen({ navigation, route }) {
     Number(event.callMinutes) || Number(event.callSeconds)
       ? `${Number(event.callMinutes) || 0}m ${Number(event.callSeconds) || 0}s`
       : '';
+  const files = (Array.isArray(event.attachments) && event.attachments.length ? event.attachments : sharedFiles)
+    .filter((f) => f && /^https:\/\//i.test(String(f.url || '')));
+  const openFile = (f) =>
+    Linking.openURL(f.url).catch(() => Alert.alert('Could not open file', 'Try again when you are online.'));
   const previewHeight = poem ? Math.min(560, Math.round(screenW * 1.45)) : 240;
 
   return (
@@ -257,6 +277,25 @@ export default function EventViewScreen({ navigation, route }) {
       ) : event.nextAction === 'done' ? (
         <Text style={styles.meta}>Next: Done</Text>
       ) : null}
+
+      {files.map((f, i) => (
+        <View key={`${f.name || 'file'}-${i}`} style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => openFile(f)}
+            accessibilityLabel={`Open ${f.name || 'attachment'}`}
+          >
+            <Ionicons
+              name={f.contentType === 'application/pdf' ? 'document-text-outline' : 'image-outline'}
+              size={16}
+              color="#7dd3fc"
+            />
+            <Text style={styles.actionText}>
+              {files.length === 1 ? 'Open ticket' : `Open ${f.name || `file ${i + 1}`}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ))}
 
       {event.driveUrl ? (
         <View style={styles.actionRow}>

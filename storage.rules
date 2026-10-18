@@ -10,6 +10,16 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
+    // Event tickets / PDFs (bot API writes these with the Admin SDK; this rule is only
+    // needed if the app itself uploads attachments). Up to 10 MB, PDF or image.
+    match /users/{userId}/events/{eventId}/attachments/{fileName} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType == 'application/pdf'
+            || request.resource.contentType.matches('image/.*'));
+    }
     // Any other file under a user's own folder (e.g. profile photo later): owner only.
     match /users/{userId}/{allPaths=**} {
       allow read, delete: if request.auth != null && request.auth.uid == userId;

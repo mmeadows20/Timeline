@@ -34,6 +34,8 @@ Stored at `users/{uid}/events/{id}` exactly like the app's `saveEvent()`:
 | `createdAt`, `updatedAt` | ISO strings, set by the API |
 | `ownerUid` | key owner's uid, set by the API |
 | `addedBy` | always `"bot"` on bot-created events (marker for sorting / removing) |
+| `attachments` | set by the API only: `[{ name, contentType, size, storagePath, url, addedAt, addedBy: "bot" }]` (tickets, PDFs). The app shows an **Open ticket** button per file on the event view |
+| `shareId`, `isShared`, `sharedFrom` | set by `POST /events/:id/invite`, the same as the app's Share |
 
 Responses also include `appLink: "timelineapp://event/<id>"` and `webLink: null` (Hosting redirect comes later).
 
@@ -66,6 +68,8 @@ Send one of:
   "labels": ["family"], "id": "<eventId from /photos>", "imageUri": "<downloadUrl>" }
 ```
 Or attach the photo in the same call with `imageBase64` (+ `contentType`).
+Tickets in the same call: `"attachments": [{ "fileBase64": "<base64 or data: URL>", "contentType": "application/pdf", "name": "train-ticket.pdf" }]`
+(or a single top-level `fileBase64` + `contentType` + `name`). Same limits as `POST /events/:id/attachments`.
 `201` → the stored event + `appLink` + `webLink`. `409` if `id` already exists.
 
 ### `GET /events?from=&to=&q=&label=&limit=`
@@ -82,6 +86,50 @@ Or attach the photo in the same call with `imageBase64` (+ `contentType`).
 ### `PATCH /events/:id`
 Body: any of the optional fields above. `id`, `ownerUid`, `addedBy`, `createdAt` cannot be changed. Sets `updatedAt`.
 `200` → the updated event + links.
+
+### `DELETE /events/:id`
+Only events with `addedBy: "bot"` (`403` otherwise). Also deletes the event's Storage files (photo + attachments), its pending invites, and its `sharedEvents` doc if no friend has joined.
+`200` → `{ deleted: "<id>", removed: { files, invites, sharedEvent } }`.
+
+## Tickets and files (attachments)
+Max **10 MB** per file, up to 10 per event. Allowed `contentType`: `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `image/heic`. PDFs must start with `%PDF-`.
+Stored at `users/{uid}/events/{eventId}/attachments/<name>` (name is cleaned to `A-Z a-z 0-9 . _ -`, extension from the type; a clash gets a short prefix).
+`url` is a Firebase download URL (token link), so it opens in a browser or PDF viewer without signing in. Treat it like a private link.
+If the event is shared, the shared copy (`sharedEvents/{shareId}.attachments`) is updated too, so friends who joined see the ticket.
+
+### `POST /events/:id/attachments`
+Send one of:
+- JSON `{ "fileBase64": "<base64 or data: URL>", "contentType": "application/pdf", "name": "ticket.pdf" }` (`pdfBase64` also accepted)
+- `multipart/form-data` with one file field (+ optional `name` field)
+- raw body with `Content-Type: application/pdf` (optional `?name=`)
+
+`201` → `{ eventId, attachment: { name, contentType, size, storagePath, url, addedAt, addedBy }, attachments: [ … ] }`.
+`413` over 10 MB, `415` wrong type, `404` unknown event. (`POST /photos` stays image-only and points PDFs here.)
+
+### `DELETE /events/:id/attachments/:name`
+Removes the file and its entry. `200` → `{ eventId, attachments }`.
+
+## Sharing with a friend (invites)
+Works exactly like tapping **Share** on an event in the app (`shareService.createEventShare`):
+creates or reuses `sharedEvents/{shareId}` (`share_<base36 time>_<6 chars>`, creator listed as participant), writes `eventInvites/{CODE}`
+`{ shareId, fromUid, fromName, fromHandle?, fromEmail?, code, status: "pending", eventTitle, createdAt, expiresAt, addedBy: "bot" }`,
+and sets `shareId`, `isShared: true`, `sharedFrom` on the event. Codes are 6 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, single use, expire after **14 days**.
+The app has no free-tier invite cap yet, so none is applied here (add it in both places when friend caps arrive).
+Only the event's creator can invite (`409` on an event a friend shared with you).
+
+### `POST /events/:id/invite`
+No body. `201` →
+```json
+{ "eventId": "…", "shareId": "share_…", "code": "K7QM3P",
+  "link": "timelineapp://share/K7QM3P", "joinLink": "timelineapp://join/K7QM3P",
+  "expiresAt": "2026-11-01T17:50:00.000Z",
+  "invite": { "code", "status": "pending", "shareId", "eventTitle", "createdAt", "expiresAt", "link", "joinLink" },
+  "howToAccept": "Your friend opens the Timeline app, goes to Accept Invite and types the code …" }
+```
+The friend accepts by typing the code on **Accept Invite**, scanning a QR of `link`, or tapping `link` on their phone. Each call makes a new code for the same share (one per friend).
+
+### `GET /events/:id/invites`
+`200` → `{ eventId, shareId, invites: [{ code, status: pending|accepted|declined|expired, shareId, eventTitle, createdAt, expiresAt, acceptedByUid?, acceptedAt?, link, joinLink }] }`, newest first.
 
 ## Word to Int
 Saved words live at `users/{uid}/wordNumbers/{id}`, the same docs the app's Word to Int screen reads and writes. The numbers are worked out exactly as the app does it (the code is ported from `src/services/wordToIntService.js`, so keep the two in sync).
