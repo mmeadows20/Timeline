@@ -17,16 +17,26 @@ export function isPoemEvent(event) {
   return labels.includes('poem') || labels.includes('poetry');
 }
 
-export function poemBody(event) {
-  return String(event?.description || event?.poemText || event?.body || '').replace(/\r\n/g, '\n');
-}
+const LINK_WORD = new Set(
+  'http https www com net org google drive docs file view usp sharing html php pdf png jpg jpeg webp gif'.split(' ')
+);
 
-export function tokenize(text) {
+/** Poem title and lines only. Drive links and "Open card in Drive" are not part of the poem. */
+export function poemWordsText(text) {
   return String(text || '')
-    .toLowerCase()
-    .replace(/[’']/g, '')
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w && w.length > 1 && !STOP.has(w) && !/^\d+$/.test(w));
+    .replace(/\r\n/g, '\n')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\bwww\.\S+/gi, ' ')
+    .replace(/\b[\w.-]*google\.com\S*/gi, ' ')
+    .replace(/\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/gi, ' ')
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^(open\s+card(\s+in\s+drive)?|poem\s+card|card\s+in\s+drive)$/i.test(line)) return false;
+      return true;
+    })
+    .join('\n');
 }
 
 function linesOf(text) {
@@ -36,9 +46,26 @@ function linesOf(text) {
     .filter((line) => line.trim().length);
 }
 
+export function poemBody(event) {
+  return String(event?.description || event?.poemText || event?.body || '').replace(/\r\n/g, '\n');
+}
+
+export function tokenize(text) {
+  return poemWordsText(text)
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter((w) => {
+      if (!w || w.length < 2 || STOP.has(w) || /^\d+$/.test(w)) return false;
+      if (LINK_WORD.has(w)) return false;
+      if (w.length >= 16 && /[a-z]/.test(w) && /\d/.test(w)) return false;
+      return true;
+    });
+}
+
 export function analysePoem(event) {
   const title = String(event?.title || '').trim() || 'Untitled';
-  const body = poemBody(event);
+  const body = poemWordsText(poemBody(event));
   const lines = linesOf(body);
   const words = body.trim() ? body.trim().split(/\s+/).filter(Boolean) : [];
   const chars = body.replace(/\s/g, '').length;
