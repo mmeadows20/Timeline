@@ -132,8 +132,9 @@ export function isShareIntentAvailable() {
   } catch (_) {
     return false;
   }
-  // expo-share-intent@5.x is built for SDK 54; on 55+ it often throws
-  // "undefined is not a function" at startup. Keep Share disabled until upgraded.
+  // The Play build does not include the Expo SDK number. If that number is
+  // missing, do not load the native share module: touching it at startup
+  // closes the app. Share stays off on SDK 55 and above either way.
   try {
     const Constants = require('expo-constants').default;
     const sdk =
@@ -142,11 +143,9 @@ export function isShareIntentAvailable() {
       Constants.manifest2?.extra?.expoClient?.sdkVersion ||
       '';
     const major = parseInt(String(sdk).split('.')[0], 10);
-    if (Number.isFinite(major) && major >= 55) {
-      return false;
-    }
+    if (!Number.isFinite(major) || major >= 55) return false;
   } catch (_) {
-    // If we cannot read SDK, still try the module check below.
+    return false;
   }
   try {
     const mod = require('expo-share-intent');
