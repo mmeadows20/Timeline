@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { saveEvent, CATEGORIES } from '../services/eventService';
+import { saveEvent, deleteEvent, CATEGORIES } from '../services/eventService';
 import { getEventCategories } from '../services/profileService';
 import ImageAttachField from '../components/ImageAttachField';
 import LabelPicker from '../components/LabelPicker';
@@ -36,6 +36,7 @@ export default function AddPoemScreen({ navigation, route }) {
   const [shareCaption, setShareCaption] = useState(existing?.shareCaption || '');
   const [labels, setLabels] = useState(existing?.labels || []);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [eventCats, setEventCats] = useState(CATEGORIES);
 
   useEffect(() => {
@@ -80,6 +81,33 @@ export default function AddPoemScreen({ navigation, route }) {
       Alert.alert('Could not save the poem', e?.message || 'Try again. If the photos are very large, remove one and save again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!existing?.id || saving || deleting) return;
+    const name = title.trim() || existing.title || 'this poem';
+    const message = `Delete "${name}"? This removes it from this device and from your cloud copy.`;
+    let ok = false;
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+      ok = window.confirm('Delete poem\n\n' + message);
+    } else {
+      ok = await new Promise((resolve) => {
+        Alert.alert('Delete poem', message, [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Delete', style: 'destructive', onPress: () => resolve(true) },
+        ]);
+      });
+    }
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteEvent(existing.id);
+      navigation.goBack();
+    } catch (e) {
+      Alert.alert('Could not delete', e?.message || 'Try again.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -177,9 +205,14 @@ export default function AddPoemScreen({ navigation, route }) {
           textAlignVertical="top"
         />
 
-        <TouchableOpacity style={styles.save} onPress={handleSave} disabled={saving}>
+        <TouchableOpacity style={styles.save} onPress={handleSave} disabled={saving || deleting}>
           <Text style={styles.saveText}>{saving ? 'Saving…' : existing ? 'Update poem' : 'Add poem'}</Text>
         </TouchableOpacity>
+        {existing?.id ? (
+          <TouchableOpacity style={styles.delete} onPress={handleDelete} disabled={saving || deleting}>
+            <Text style={styles.deleteText}>{deleting ? 'Deleting…' : 'Delete poem'}</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -222,6 +255,16 @@ function screenStyles(c) {
     marginTop: 28,
   },
   saveText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  delete: {
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    backgroundColor: '#450a0a',
+    alignItems: 'center',
+  },
+  deleteText: { color: '#fca5a5', fontSize: 16, fontWeight: '600' },
 });
 }
 
