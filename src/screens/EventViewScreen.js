@@ -24,6 +24,7 @@ import ClipVideo from '../components/ClipVideo';
 import { asImageUri } from '../services/imagePicker';
 import { useTheme } from '../themeContext';
 import { eventsByIds, linkEventGroup, unlinkEvents, eventKindLabel } from '../services/eventLinkService';
+import { looksLikeProse, splitIngredientList } from '../services/remakeList';
 
 export function openEventEditor(navigation, item) {
   if (!navigation || !item) return;
@@ -151,6 +152,12 @@ export default function EventViewScreen({ navigation, route }) {
   const poem = kind.kind === 'poem';
   const photo = asImageUri(event.coverImageUri || event.imageUri);
   const body = String(event.description || event.smsBody || '').trim();
+  const storedItems = String(event.foodItems || '').trim();
+  let ingredientLines = splitIngredientList(storedItems);
+  if (!ingredientLines.length && (event.source === 'food' || event.mealKit) && body && !looksLikeProse(body)) {
+    ingredientLines = splitIngredientList(body);
+  }
+  const note = ingredientLines.length && (body === storedItems || !looksLikeProse(body) && !storedItems) ? '' : body;
   const postLink = normalizeSocialUrl(
     event.socialUrl || event.url || event.qrLink || '',
     event.socialPlatform,
@@ -254,6 +261,19 @@ export default function EventViewScreen({ navigation, route }) {
       <Meta styles={styles} label="Book" value={event.collectionName} />
       <Meta styles={styles} label="Wash" value={event.source === 'laundry' ? washStatusLabel(event.washStatus) : ''} />
       <Meta styles={styles} label="Link" value={event.qrLink || event.url || event.socialUrl} />
+      <Meta styles={styles} label="Cook" value={event.cookMinutes ? `${event.cookMinutes} min` : ''} />
+      <Meta styles={styles} label="Tags" value={event.mealTags} />
+      <Meta styles={styles} label="Card" value={event.cardNumber} />
+      <Meta styles={styles} label="Recipe" value={event.recipeUrl} />
+
+      {ingredientLines.length ? (
+        <View style={styles.ingredients}>
+          <Text style={styles.metaLabel}>Ingredients</Text>
+          {ingredientLines.map((line, index) => (
+            <Text key={`${index}-${line}`} style={styles.ingredient}>{line}</Text>
+          ))}
+        </View>
+      ) : null}
 
       {event.nextAction && event.nextAction !== 'none' && event.nextAction !== 'done' ? (
         <View style={styles.actionRow}>
@@ -332,11 +352,11 @@ export default function EventViewScreen({ navigation, route }) {
         </View>
       ) : null}
 
-      {body ? (
+      {note ? (
         <View style={[styles.body, poem && styles.bodyPoem, { borderLeftColor: kind.color || '#3b82f6' }]}>
-          <Text style={[styles.bodyText, poem && styles.poemText]}>{body}</Text>
+          <Text style={[styles.bodyText, poem && styles.poemText]}>{note}</Text>
         </View>
-      ) : (
+      ) : ingredientLines.length ? null : (
         <Text style={styles.noBody}>No extra text was saved with this.</Text>
       )}
 
@@ -432,6 +452,8 @@ function screenStyles(c) {
   },
   meta: { color: '#e2e8f0', fontSize: 15, marginBottom: 6, lineHeight: 22 },
   metaLabel: { color: c.faint, fontWeight: '600' },
+  ingredients: { marginTop: 14 },
+  ingredient: { color: c.text, fontSize: 16, lineHeight: 24 },
   body: {
     marginTop: 16,
     backgroundColor: c.card,
