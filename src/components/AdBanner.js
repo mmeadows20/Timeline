@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
+import Constants from 'expo-constants';
 import { bannerUnitId } from '../services/adUnits';
 
+function inExpoGo() {
+  return Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo';
+}
+
 function loadAds() {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'web' || inExpoGo()) return null;
   try {
     return require('react-native-google-mobile-ads');
   } catch (e) {
@@ -42,13 +47,15 @@ export default function AdBanner() {
     };
   }, [ads]);
 
-  if (Platform.OS === 'web' || !ads || failed || !ready) {
-    if (Platform.OS !== 'web') return null;
-    return (
-      <View style={styles.slot}>
-        <Text style={styles.label}>Advert · shows in the Android test build</Text>
-      </View>
-    );
+  if (!ads || failed || !ready) {
+    if (Platform.OS === 'web' || inExpoGo() || !ads) {
+      return (
+        <View style={styles.slot}>
+          <Text style={styles.label}>Advert · shows in the Android test build</Text>
+        </View>
+      );
+    }
+    return null;
   }
 
   const { BannerAd, BannerAdSize } = ads;
