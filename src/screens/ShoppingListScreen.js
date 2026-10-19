@@ -44,6 +44,7 @@ export default function ShoppingListScreen() {
   const [state, setState] = useState(null);
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState('');
+  const [draftItems, setDraftItems] = useState('');
   const [draftPaid, setDraftPaid] = useState('');
   const [draftBox, setDraftBox] = useState(false);
   const [itemDrafts, setItemDrafts] = useState({});
