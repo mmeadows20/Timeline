@@ -37,7 +37,7 @@ import {
   visibleRecipes,
 } from '../services/remakeList';
 
-export default function ShoppingListScreen() {
+export default function ShoppingListScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const [events, setEvents] = useState([]);
@@ -55,6 +55,7 @@ export default function ShoppingListScreen() {
   const [swapFor, setSwapFor] = useState(null);
   const [swapDraft, setSwapDraft] = useState('');
   const [group, setGroup] = useState('meal');
+  const [sharing, setSharing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -260,6 +261,49 @@ export default function ShoppingListScreen() {
       : 'Could not copy from this device.';
     if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
     else Alert.alert(ok ? 'Copied' : 'Copy', message);
+  }
+
+  async function shareWithFriend() {
+    if (sharing) return;
+    const text = listText(recipes, lines, shop, state);
+    if (!lines.length) {
+      const message = 'Add a meal before sharing the list with a friend.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Nothing to share', message);
+      return;
+    }
+    setSharing(true);
+    try {
+      const id = state.shareEventId || `shop-list-${Date.now().toString(36)}`;
+      const saved = await saveEvent({
+        id,
+        title: 'Shopping list',
+        description: text,
+        date: new Date().toISOString(),
+        category: 'personal',
+        source: 'manual',
+        shareId: state.shareId || undefined,
+        isShared: !!state.shareId,
+      });
+      const event = (saved || []).find((row) => row.id === id) || {
+        id,
+        title: 'Shopping list',
+        description: text,
+        date: new Date().toISOString(),
+        category: 'personal',
+        source: 'manual',
+        shareId: state.shareId,
+        isShared: !!state.shareId,
+      };
+      persist({ ...state, shareEventId: id, shareId: event.shareId || state.shareId || null });
+      navigation.navigate('ShareEvent', { event });
+    } catch (e) {
+      const message = e?.message || 'Sign in, then try again.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Could not share', message);
+    } finally {
+      setSharing(false);
+    }
   }
 
   function openNext() {
@@ -680,6 +724,9 @@ export default function ShoppingListScreen() {
       </TouchableOpacity>
       <TouchableOpacity style={styles.secondary} onPress={copyList}>
         <Text style={styles.secondaryText}>Copy for a note or Timeline Bot</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.secondary} onPress={shareWithFriend} disabled={sharing}>
+        <Text style={styles.secondaryText}>{sharing ? 'Preparing the invite…' : 'Share with a friend'}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={styles.secondary}
