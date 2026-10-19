@@ -5,6 +5,7 @@ import { auth, db } from './firebase';
 import { isGuestUid } from './guestSession';
 import { uploadEventImage, deleteEventPhotos } from './photoStorage';
 import { asImageUri, compressImageUri } from './imagePicker';
+import { preserveEventClock } from './eventClock';
 
 const LEGACY_EVENTS_KEY = '@timeline_events';
 const GUEST_EVENTS_KEY = '@timeline_events_guest';
@@ -703,6 +704,7 @@ export async function saveEvent(event) {
       saved = {
         ...events[index],
         ...event,
+        date: preserveEventClock(event.date, events[index].date),
         updatedAt: now,
         ownerUid: uid || events[index].ownerUid || undefined,
       };

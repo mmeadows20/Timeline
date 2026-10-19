@@ -44,6 +44,7 @@ import { getShowFoodInMenu, getShowWashInMenu, getEventCategories } from '../ser
 import { PLACE_PRESETS } from '../services/placesService';
 import { useTheme } from '../themeContext';
 import DateField from '../components/DateField';
+import { keptClockLabel, localDayKey } from '../services/eventClock';
 
 export default function AddEventScreen({ navigation, route }) {
   const { colors } = useTheme();
@@ -78,7 +79,7 @@ export default function AddEventScreen({ navigation, route }) {
   const [emailFrom, setEmailFrom] = useState(existing?.emailFrom || route.params?.emailFrom || '');
   const [date, setDate] = useState(
     existing?.date
-      ? existing.date.slice(0, 10)
+      ? localDayKey(existing.date)
       : paramDate || new Date().toISOString().slice(0, 10)
   );
   const [category, setCategory] = useState(
@@ -190,7 +191,7 @@ export default function AddEventScreen({ navigation, route }) {
           setSyncedExisting(refreshed);
           if (typeof refreshed.description === 'string') setDescription(refreshed.description);
           if (typeof refreshed.title === 'string') setTitle(refreshed.title);
-          if (refreshed.date) setDate(String(refreshed.date).slice(0, 10));
+          if (refreshed.date) setDate(localDayKey(refreshed.date));
           if (refreshed.category) setCategory(refreshed.category);
         } else {
           setSyncedExisting(existing);
@@ -765,6 +766,11 @@ export default function AddEventScreen({ navigation, route }) {
 
         <Text style={styles.label}>Date</Text>
         <DateField value={date} onChange={setDate} editable={!coreReadOnly} />
+        {keptClockLabel(existing?.date) ? (
+          <Text style={{ color: colors.faint, fontSize: 13, marginTop: -6, marginBottom: 12 }}>
+            Time kept: {keptClockLabel(existing.date)}. Saving again does not clear it.
+          </Text>
+        ) : null}
 
         <Text style={styles.label}>Location (optional)</Text>
         <View style={styles.categories}>

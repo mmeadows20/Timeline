@@ -16,6 +16,7 @@ import ImageAttachField from '../components/ImageAttachField';
 import LabelPicker from '../components/LabelPicker';
 import { useTheme } from '../themeContext';
 import DateField from '../components/DateField';
+import { keptClockLabel, localDayKey } from '../services/eventClock';
 
 export default function AddPoemScreen({ navigation, route }) {
   const { colors } = useTheme();
@@ -24,7 +25,7 @@ export default function AddPoemScreen({ navigation, route }) {
   const [title, setTitle] = useState(existing?.title || '');
   const [description, setDescription] = useState(existing?.description || '');
   const [date, setDate] = useState(
-    existing?.date ? existing.date.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    existing?.date ? localDayKey(existing.date) : new Date().toISOString().slice(0, 10)
   );
   const [category, setCategory] = useState(existing?.category || 'hobby');
   const [collectionName, setCollectionName] = useState(existing?.collectionName || '');
@@ -101,6 +102,9 @@ export default function AddPoemScreen({ navigation, route }) {
 
         <Text style={styles.label}>Date</Text>
         <DateField value={date} onChange={setDate} />
+        {keptClockLabel(existing?.date) ? (
+          <Text style={styles.hint}>Time kept: {keptClockLabel(existing.date)}. Saving again does not clear it.</Text>
+        ) : null}
 
         <Text style={styles.label}>Category</Text>
         <View style={styles.row}>

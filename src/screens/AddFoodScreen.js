@@ -15,6 +15,7 @@ import ImageAttachField from '../components/ImageAttachField';
 import { auth } from '../services/firebase';
 import { useTheme } from '../themeContext';
 import DateField from '../components/DateField';
+import { keptClockLabel, localDayKey } from '../services/eventClock';
 import { looksLikeProse, splitIngredientList } from '../services/remakeList';
 import { readHelloFreshLink } from '../services/helloFreshLink';
 
@@ -64,9 +65,7 @@ export default function AddFoodScreen({ navigation, route }) {
   const [foodItems, setFoodItems] = useState(startFields.ingredients);
   const [note, setNote] = useState(startFields.note);
   const [date, setDate] = useState(
-    existing?.date
-      ? existing.date.slice(0, 10)
-      : paramDate || new Date().toISOString().slice(0, 10)
+    existing?.date ? localDayKey(existing.date) : paramDate || new Date().toISOString().slice(0, 10)
   );
   const [foodStatus, setFoodStatus] = useState(
     existing?.foodStatus === 'planned' || existing?.foodStatus === 'eaten'
@@ -272,6 +271,9 @@ export default function AddFoodScreen({ navigation, route }) {
 
         <Text style={styles.label}>Date</Text>
         <DateField value={date} onChange={setDate} />
+        {keptClockLabel(existing?.date) ? (
+          <Text style={styles.hint}>Time kept: {keptClockLabel(existing.date)}. Saving again does not clear it.</Text>
+        ) : null}
 
         <Text style={styles.label}>Status</Text>
         <View style={styles.row}>
