@@ -92,7 +92,13 @@ const WRITABLE = [
   'foodItems', 'emailFrom', 'botNote',
   'socialUrl', 'socialTitle', 'socialPlatform', 'socialAction', 'socialNote', 'url',
   'driveUrl',
+  'mealKit', 'recipeName', 'cardNumber', 'cookMinutes', 'mealTags', 'recipeUrl',
 ];
+
+/** Meal-kit fields (AddFoodScreen) are plain strings; cap their length. */
+const MEAL_KIT_CAPS = {
+  mealKit: 40, recipeName: 300, cardNumber: 40, cookMinutes: 20, mealTags: 500, recipeUrl: 2000,
+};
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -164,7 +170,10 @@ function pickWritable(body) {
       throw new HttpError(400, `${k} must be an https download URL from POST /photos`);
     }
   });
-  ['socialUrl', 'url', 'driveUrl'].forEach((k) => {
+  Object.keys(MEAL_KIT_CAPS).forEach((k) => {
+    if (out[k] !== undefined && out[k] !== null) out[k] = String(out[k]).trim().slice(0, MEAL_KIT_CAPS[k]);
+  });
+  ['socialUrl', 'url', 'driveUrl', 'recipeUrl'].forEach((k) => {
     if (out[k] !== undefined && out[k] !== null && !/^https:\/\//i.test(String(out[k]))) {
       throw new HttpError(400, `${k} must be an https URL`);
     }
