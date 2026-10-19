@@ -209,6 +209,28 @@ export default function AddPoemScreen({ navigation, route }) {
           <Text style={styles.saveText}>{saving ? 'Saving…' : existing ? 'Update poem' : 'Add poem'}</Text>
         </TouchableOpacity>
         {existing?.id ? (
+          <TouchableOpacity
+            style={styles.share}
+            onPress={() =>
+              navigation.navigate('ShareEvent', {
+                event: {
+                  ...existing,
+                  title: title.trim() || existing.title,
+                  description: description.trim(),
+                  category,
+                  collectionName: collectionName.trim() || existing.collectionName,
+                  shareId: existing.shareId,
+                  isShared: existing.isShared,
+                },
+              })
+            }
+          >
+            <Text style={styles.shareText}>Share with a friend</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.hint}>Save the poem first, then open it again to share it with a friend.</Text>
+        )}
+        {existing?.id ? (
           <TouchableOpacity style={styles.delete} onPress={handleDelete} disabled={saving || deleting}>
             <Text style={styles.deleteText}>{deleting ? 'Deleting…' : 'Delete poem'}</Text>
           </TouchableOpacity>
@@ -255,6 +277,15 @@ function screenStyles(c) {
     marginTop: 28,
   },
   saveText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  share: {
+    marginTop: 12,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: c.blue,
+    alignItems: 'center',
+  },
+  shareText: { color: c.blueSoft, fontSize: 16, fontWeight: '700' },
   delete: {
     marginTop: 16,
     paddingVertical: 14,
