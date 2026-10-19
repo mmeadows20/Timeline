@@ -287,11 +287,15 @@ function getUid() {
 // Bumps on login/logout so in-flight sync cannot write after an auth switch.
 let authEpoch = 0;
 let activeAuthUid = null;
+let sessionEvents = null;
+let sessionEventsUid = undefined;
 
 /** Call from App onAuthStateChanged so event I/O is scoped to the current uid. */
 export function beginAuthScope(uid) {
   authEpoch += 1;
   activeAuthUid = uid || null;
+  sessionEvents = null;
+  sessionEventsUid = undefined;
   return authEpoch;
 }
 
@@ -534,7 +538,18 @@ export async function readLocalEvents(uid = getUid()) {
  * If signed in and EVENTS_FIRESTORE_SYNC_ENABLED, sync from Firestore first.
  * Otherwise per-uid local cache only. Logged out uses guest cache only.
  */
-export async function getEvents() {
+export async function getEvents(force) {
+  const uid = getUid() || null;
+  if (!force && sessionEvents && sessionEventsUid === uid) return sessionEvents;
+  const list = await loadEventsFresh();
+  if ((getUid() || null) === uid) {
+    sessionEvents = list;
+    sessionEventsUid = uid;
+  }
+  return list;
+}
+
+async function loadEventsFresh() {
   const uid = getUid();
   if (uid) {
     if (!EVENTS_FIRESTORE_SYNC_ENABLED) {
@@ -670,7 +685,10 @@ export async function syncEventsFromCloud(uid) {
     if (!isScopeCurrent(uid, epoch)) return Object.values(byId);
     const merged = sortEvents(Object.values(byId));
     promotePendingEventPhotos(merged, uid, 6)
-      .then((next) => writeCache(next, uid))
+      .then((next) => {
+        if (sessionEventsUid === uid) sessionEvents = next;
+        return writeCache(next, uid);
+      })
       .catch((e) => console.warn('Pending photo upload skipped', e));
     writeCache(merged, uid).catch((e) => console.warn('Could not store events on this device', e));
     return merged;
@@ -752,6 +770,8 @@ export async function saveEvent(event) {
   }
 
   await writeCache(events, uid);
+  sessionEvents = events;
+  sessionEventsUid = uid || null;
 
   if (saved && uid) {
     try {
@@ -774,6 +794,8 @@ export async function deleteEvent(id) {
   const filtered = events.filter((e) => e.id !== id);
   await removeImageKeysForEvents(removed);
   await writeCache(filtered, uid);
+  sessionEvents = filtered;
+  sessionEventsUid = uid || null;
 
   if (uid && !isGuestUid(uid) && EVENTS_FIRESTORE_SYNC_ENABLED) {
     try {

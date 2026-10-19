@@ -17,11 +17,15 @@ function wordStorageKey(uid) {
 // Bumps on login/logout so in-flight sync cannot write after an auth switch.
 let authEpoch = 0;
 let activeAuthUid = null;
+let sessionWords = null;
+let sessionWordsUid = undefined;
 
 /** Call from App onAuthStateChanged so word-number I/O is scoped to the current uid. */
 export function beginAuthScope(uid) {
   authEpoch += 1;
   activeAuthUid = uid || null;
+  sessionWords = null;
+  sessionWordsUid = undefined;
   return authEpoch;
 }
 
@@ -424,7 +428,18 @@ export async function syncWordNumbersFromCloud(uid) {
  * If signed in and WORD_NUMBERS_FIRESTORE_SYNC_ENABLED, sync from Firestore.
  * Otherwise per-uid local cache only. Logged out uses guest cache only.
  */
-export async function getWordNumbers() {
+export async function getWordNumbers(force) {
+  const uid = currentUid() || null;
+  if (!force && sessionWords && sessionWordsUid === uid) return sessionWords;
+  const list = await loadWordNumbersFresh();
+  if ((currentUid() || null) === uid) {
+    sessionWords = list;
+    sessionWordsUid = uid;
+  }
+  return list;
+}
+
+async function loadWordNumbersFresh() {
   const uid = currentUid();
   const epoch = authEpoch;
   try {
@@ -546,6 +561,8 @@ export async function saveWordNumber(entry) {
   }
 
   await writeList(list, uid);
+  sessionWords = sortWordNumbers(list);
+  sessionWordsUid = uid || null;
   const saved = await readListRaw(uid);
   const found = saved.find((item) => String(item.id) === String(payload.id));
   if (!found) {
@@ -605,6 +622,8 @@ export async function deleteWordNumber(id) {
     return true;
   });
   await writeList(next, uid);
+  sessionWords = next;
+  sessionWordsUid = uid || null;
   if (uid && target?.id && WORD_NUMBERS_FIRESTORE_SYNC_ENABLED) {
     try {
       await deleteDoc(wordNumberDoc(uid, target.id));

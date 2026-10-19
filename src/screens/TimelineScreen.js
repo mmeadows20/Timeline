@@ -92,12 +92,15 @@ export default function TimelineScreen({ navigation, route }) {
     ]).start(() => setToastMessage(null));
   };
 
-  const loadEvents = useCallback(async () => {
+  const noticesOnce = useRef(false);
+
+  const loadEvents = useCallback(async (force) => {
     setLoading(true);
     try {
-      const data = await getEvents();
+      const data = await getEvents(!!force);
       setAllEvents(data);
       const myUid = auth.currentUser?.uid;
+      if (!force && noticesOnce.current) return;
       const notices = {};
       if (myUid) {
         const creatorShareIds = [
@@ -123,6 +126,7 @@ export default function TimelineScreen({ navigation, route }) {
           new Promise((resolve) => setTimeout(resolve, 8000)),
         ]);
       }
+      noticesOnce.current = true;
       setShareNotices(notices);
     } finally {
       setLoading(false);
@@ -508,7 +512,7 @@ export default function TimelineScreen({ navigation, route }) {
             renderItem={renderItem}
             contentContainerStyle={styles.list}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadEvents(); }} tintColor="#3b82f6" />
+              <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadEvents(true); }} tintColor="#3b82f6" />
             }
           />
         </View>
