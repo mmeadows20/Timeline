@@ -768,8 +768,32 @@ function ThemedNavigator({ children, navKey, initialRouteName }) {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppShell />
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <AppShell />
+      </ThemeProvider>
+    </AppErrorBoundary>
   );
+}
+
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>
+          {String(this.state.error?.message || this.state.error)}
+        </Text>
+      </View>
+    );
+  }
 }

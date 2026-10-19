@@ -39,7 +39,7 @@
         "android.permission.READ_MEDIA_IMAGES",
         "com.google.android.gms.permission.AD_ID"
       ],
-      "versionCode": 2,
+      "versionCode": 3,
       "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
@@ -88,15 +88,7 @@
           "isAndroidBackgroundLocationEnabled": false
         }
       ],
-      "expo-iap",
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511",
-          "androidSdk": "classic"
-        }
-      ]
+      "expo-iap"
     ],
     "icon": "./assets/icon.png",
     "owner": "sarahpoet6014",
