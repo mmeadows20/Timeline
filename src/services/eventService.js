@@ -363,6 +363,7 @@ function eventPayloadForCloud(event, uid) {
     delete payload.coverImageUri;
     delete payload.videoUri;
   }
+  delete payload.photoSkip;
   return stripUndefined(payload);
 }
 
@@ -421,6 +422,8 @@ async function promotePendingEventPhotos(events, uid, limit = 6) {
     for (const field of ['imageUri', 'coverImageUri']) {
       if (left <= 0) break;
       if (!photoCanLeaveDevice(next[field])) continue;
+      const stamp = String(next[field]).slice(0, 200);
+      if (next.photoSkip && next.photoSkip[field] === stamp) continue;
       left -= 1;
       try {
         const remote = await withTimeout(
@@ -428,11 +431,15 @@ async function promotePendingEventPhotos(events, uid, limit = 6) {
           8000,
         );
         if (remote && remote !== next[field]) {
-          next = { ...next, [field]: remote };
+          const photoSkip = { ...(next.photoSkip || {}) };
+          delete photoSkip[field];
+          next = { ...next, [field]: remote, photoSkip };
           changed = true;
           await setDoc(eventDoc(uid, next.id), eventPayloadForCloud(next, uid), { merge: true });
         }
       } catch (e) {
+        next = { ...next, photoSkip: { ...(next.photoSkip || {}), [field]: stamp } };
+        changed = true;
         console.warn('Pending event photo stayed on this device', e?.message || e);
       }
     }
@@ -644,6 +651,7 @@ export async function syncEventsFromCloud(uid) {
         videoUri: ev.videoUri || (prev && prev.videoUri) || undefined,
         audioUri: ev.audioUri || (prev && prev.audioUri) || undefined,
         audioName: ev.audioName || (prev && prev.audioName) || undefined,
+        photoSkip: (prev && prev.photoSkip) || undefined,
       };
     });
 
