@@ -296,6 +296,22 @@ function axisBubbleSize(width, perSide) {
   return Math.max(46, Math.min(BUBBLE_SIZE, Math.round(step * 2.2)));
 }
 
+function eventCount(bubble) {
+  const raw = bubble?.count;
+  if (String(raw || '').includes('/')) return 1;
+  const n = typeof raw === 'number' ? raw : parseInt(String(raw || ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/** More events, larger bubble. Equal counts stay the same size. */
+function sizeForCount(count, minCount, maxCount, base) {
+  if (!(maxCount > minCount)) return base;
+  const t = (Math.sqrt(count) - Math.sqrt(minCount)) / (Math.sqrt(maxCount) - Math.sqrt(minCount));
+  const min = Math.max(42, Math.round(base * 0.66));
+  const max = Math.min(108, Math.round(base * 1.38));
+  return Math.round(min + (max - min) * Math.max(0, Math.min(1, t)));
+}
+
 function monthTickX(month, half) {
   const inner = LABEL_COL / 2 + 28;
   const edge = 22;
@@ -529,6 +545,12 @@ export default function SpineKindBlock({
   const perSide = hourBubbles ? 12 : dayBubbles ? Math.min(16, Math.ceil((dayCount || 30) / 2)) : 6;
   const rawSize = axisBubbleSize(width, perSide);
   const bubbleSize = hourBubbles ? Math.min(rawSize, 52) : rawSize;
+  const pool = [...(bubbles || []), ...(monthBubbles || []), ...(dayBubbles || []), ...(hourBubbles || [])];
+  const counts = pool.map(eventCount);
+  const minCount = counts.length ? Math.min(...counts) : 1;
+  const maxCount = counts.length ? Math.max(...counts) : 1;
+  const sizeOf = (bubble) => sizeForCount(eventCount(bubble), minCount, maxCount, bubbleSize);
+  const biggest = (bubbles || []).reduce((m, b) => Math.max(m, sizeOf(b)), bubbleSize);
   const progress = useRef(new Animated.Value(1)).current;
   const firstPaint = useRef(true);
   const [settled, setSettled] = useState(true);
@@ -556,11 +578,11 @@ export default function SpineKindBlock({
   const primaryLeft = blockIndex % 2 === 0;
   const n = list.length;
   const crowded = n >= 5;
-  const vertGap = crowded ? BUBBLE_SIZE + 12 : VERT_GAP;
+  const vertGap = crowded ? biggest + 10 : Math.max(VERT_GAP, biggest + 8);
   const twoLine = boxedLabel && !!sublabel;
   const showMonths = Array.isArray(months) && months.length === 12;
   const stackHeight =
-    (n === 0 ? (twoLine ? 112 : 96) : Math.max(twoLine ? 112 : 96, (n - 1) * vertGap + BUBBLE_SIZE + 28)) +
+    (n === 0 ? (twoLine ? 112 : 96) : Math.max(twoLine ? 112 : 96, (n - 1) * vertGap + biggest + 28)) +
     (showMonths ? 18 : 0);
   const spineY = stackHeight / 2;
   const seed = id ?? blockIndex;
@@ -722,7 +744,7 @@ export default function SpineKindBlock({
             progress={progress}
             glow={glowKey === `${id}:${node.bubble.kind}`}
             onPress={() => onOpenBubble(node.bubble)}
-            size={bubbleSize}
+            size={sizeOf(node.bubble)}
           />
         ))}
       </Animated.View>
@@ -764,7 +786,8 @@ export default function SpineKindBlock({
       ) : null}
 
       {placements.map((p) => {
-        const half = BUBBLE_SIZE / 2;
+        const size = sizeOf(p.bubble);
+        const half = size / 2;
         const leftStyle =
           p.side === 'right'
             ? { left: '50%', marginLeft: p.distance - half }
@@ -775,6 +798,7 @@ export default function SpineKindBlock({
             bubble={p.bubble}
             glow={glowKey === `${id}:${p.bubble.kind}`}
             onPress={() => onOpenBubble(p.bubble)}
+            size={size}
             style={[styles.bubbleAbs, leftStyle, { top: p.bubbleCenterY - half }]}
           />
         );
