@@ -50,6 +50,7 @@ const SCAN_CAP = 1000;
 const KINDS = {
   memory: { source: 'manual', category: 'personal' },
   event: { source: 'manual', category: 'personal' },
+  photo: { source: 'photo', category: 'photo' },
   poem: { source: 'hobby', category: 'hobby', hobbyType: 'poetry' },
   food: { source: 'food', category: 'other' },
   social: { source: 'social', category: 'hobby' },
@@ -57,7 +58,7 @@ const KINDS = {
 };
 
 /** GET /events?kind= -> same buckets as POST /events kinds (and the app's year-bubble classifier). */
-const FILTER_KINDS = ['social', 'poem', 'memory', 'event', 'food', 'todo', 'other'];
+const FILTER_KINDS = ['social', 'poem', 'memory', 'event', 'photo', 'food', 'todo', 'other'];
 function hasLabel(e, name) {
   return Array.isArray(e.labels) && e.labels.some((l) => String(l).trim().toLowerCase() === name);
 }
@@ -68,6 +69,15 @@ function isPoem(e) {
 function isTodoEvent(e) {
   return String(e.source || '').toLowerCase() === 'todo' || !!e.fromTodo;
 }
+function isPhoto(e) {
+  const src = String(e.source || '').toLowerCase();
+  const cat = String(e.category || '').toLowerCase();
+  if (src === 'photo' || src === 'image' || cat === 'photo') return true;
+  if (src === 'clip' && String(e.clipKind || '').toLowerCase() === 'video') return false;
+  const generic = !src || src === 'manual' || src === 'share' || src === 'clip';
+  const plain = !cat || cat === 'personal' || cat === 'other' || cat === 'event';
+  return !!(e.imageUri || e.coverImageUri) && generic && plain && !isPoem(e) && !isTodoEvent(e);
+}
 function matchesKind(e, kind) {
   const src = String(e.source || 'manual').toLowerCase();
   const cat = String(e.category || '').toLowerCase();
@@ -76,10 +86,11 @@ function matchesKind(e, kind) {
     case 'social': return src === 'social';
     case 'food': return src === 'food';
     case 'todo': return isTodoEvent(e);
+    case 'photo': return isPhoto(e);
     // memory and event are stored the same way (source manual); "other" = manual + category other.
     case 'memory':
-    case 'event': return src === 'manual' && cat !== 'other' && !isPoem(e) && !isTodoEvent(e);
-    case 'other': return src === 'manual' && cat === 'other' && !isPoem(e) && !isTodoEvent(e);
+    case 'event': return src === 'manual' && cat !== 'other' && !isPoem(e) && !isTodoEvent(e) && !isPhoto(e);
+    case 'other': return src === 'manual' && cat === 'other' && !isPoem(e) && !isTodoEvent(e) && !isPhoto(e);
     default: return true;
   }
 }

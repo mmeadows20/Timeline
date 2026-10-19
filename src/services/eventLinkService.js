@@ -1,4 +1,4 @@
-import { getEvents, saveEvent } from './eventService';
+import { getEvents, saveEvent, isPhotoEvent } from './eventService';
 
 export function linkIdList(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((id) => String(id || '').trim()).filter(Boolean))];
@@ -42,7 +42,8 @@ export async function unlinkEvents(leftId, rightId) {
 export function eventKindLabel(event) {
   if (!event) return 'Event';
   if (event.source === 'todo' || event.fromTodo) return 'To do';
-  if (event.source === 'clip') return 'Clip';
+  if (event.source === 'clip' && !isPhotoEvent(event)) return 'Clip';
+  if (isPhotoEvent(event) || event.source === 'photo' || event.category === 'photo') return 'Photo';
   if (event.hobbyType === 'poetry' || event.source === 'poem') return 'Poem';
   if (event.source === 'youtube') return 'YouTube';
   if (event.source === 'social') return 'Social';

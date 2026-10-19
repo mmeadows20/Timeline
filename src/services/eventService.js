@@ -910,7 +910,17 @@ export function getYearSummaries(events) {
   }));
 }
 
-/** Fixed bubble colours matching year-overview mock (purple poem, blue event, teal email/QR). */
+export function isPhotoEvent(event) {
+  const source = String(event?.source || '').toLowerCase();
+  const category = String(event?.category || '').toLowerCase();
+  if (source === 'photo' || source === 'image' || category === 'photo') return true;
+  const image = String(event?.imageUri || event?.coverImageUri || '').trim();
+  if (!image) return false;
+  if (source === 'clip') return String(event?.clipKind || 'image').toLowerCase() !== 'video' && !event?.videoUri;
+  const generic = !source || source === 'manual' || source === 'share';
+  const plain = !category || category === 'personal' || category === 'other' || category === 'event';
+  return generic && plain;
+}
 export const YEAR_BUBBLE_KIND_COLORS = {
   email: '#14b8a6',
   qr: '#14b8a6',
@@ -919,6 +929,7 @@ export const YEAR_BUBBLE_KIND_COLORS = {
   household: '#38bdf8',
   family: '#a855f7',
   event: '#3b82f6',
+  photo: '#fbbf24',
   youtube: '#f87171',
   spotify: '#1db954',
   game: '#818cf8',
@@ -936,6 +947,7 @@ export const YEAR_BUBBLE_KIND_COLORS = {
 const YEAR_BUBBLE_KIND_ORDER = [
   'poem',
   'event',
+  'photo',
   'email',
   'qr',
   'family',
@@ -972,7 +984,7 @@ export function classifyYearBubbleKind(event) {
       filter: { source: 'todo' },
     };
   }
-  if (source === 'clip') {
+  if (source === 'clip' && (String(event?.clipKind || '').toLowerCase() === 'video' || event?.videoUri)) {
     return {
       kind: 'clip',
       label: 'Clips',
@@ -1112,6 +1124,16 @@ export function classifyYearBubbleKind(event) {
       label: 'Family',
       color: YEAR_BUBBLE_KIND_COLORS.family,
       filter: { category: 'family' },
+    };
+  }
+
+  // A camera or gallery photo is its own bubble, not a generic event.
+  if (isPhotoEvent(event) || source === 'clip') {
+    return {
+      kind: 'photo',
+      label: 'Photo',
+      color: YEAR_BUBBLE_KIND_COLORS.photo,
+      filter: { source: 'photo' },
     };
   }
 
