@@ -37,7 +37,7 @@ import {
   visibleRecipes,
 } from '../services/remakeList';
 
-export default function ShoppingListScreen({ navigation }) {
+export default function ShoppingListScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const [events, setEvents] = useState([]);
@@ -56,6 +56,7 @@ export default function ShoppingListScreen({ navigation }) {
   const [swapDraft, setSwapDraft] = useState('');
   const [group, setGroup] = useState('meal');
   const [sharing, setSharing] = useState(false);
+  const focusMealId = route?.params?.mealId || '';
 
   useFocusEffect(
     useCallback(() => {
@@ -510,6 +511,14 @@ export default function ShoppingListScreen({ navigation }) {
           Guide prices are typical supermarket figures, not a live till.
         </Text>
       </View>
+
+      {focusMealId ? (
+        <Text style={styles.intro}>
+          {recipes.some((recipe) => recipe.id === focusMealId)
+            ? `${recipes.find((recipe) => recipe.id === focusMealId)?.name || 'This meal'} is on this list and switched on.`
+            : 'That meal was saved, but it has no foods to shop for yet. Put one ingredient on each line, then press the button again.'}
+        </Text>
+      ) : null}
 
       <View style={styles.rowBetween}>
         <Text style={styles.section}>Meals</Text>

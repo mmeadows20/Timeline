@@ -233,6 +233,19 @@ export async function saveRemakeState(state) {
   await AsyncStorage.setItem(STORE, JSON.stringify(state));
 }
 
+/** Turn a saved food event on in the shopping list, even if it was removed or switched off. */
+export async function includeFoodOnList(eventId) {
+  const id = `food-${eventId}`;
+  const state = await loadRemakeState();
+  const hidden = (state.hidden || []).filter((row) => row !== id);
+  const selected = Array.isArray(state.selected)
+    ? (state.selected.includes(id) ? state.selected : [...state.selected, id])
+    : state.selected;
+  const next = { ...state, hidden, selected };
+  await saveRemakeState(next);
+  return id;
+}
+
 function emptyState() {
   return {
     hidden: [],

@@ -16,7 +16,7 @@ import { auth } from '../services/firebase';
 import { useTheme } from '../themeContext';
 import DateField from '../components/DateField';
 import { keptClockLabel, localDayKey } from '../services/eventClock';
-import { looksLikeProse, splitIngredientList } from '../services/remakeList';
+import { includeFoodOnList, looksLikeProse, splitIngredientList } from '../services/remakeList';
 import { readHelloFreshLink } from '../services/helloFreshLink';
 
 const FOOD_STATUSES = [
@@ -180,6 +180,51 @@ export default function AddFoodScreen({ navigation, route }) {
     }
   };
 
+  const openShoppingList = async () => {
+    const items = foodItems.trim();
+    const written = note.trim();
+    if (!items && !written && !imageUri && !recipeName.trim() && !existing?.id) {
+      notify('Add the meal first', 'Add ingredients or a recipe name, then remake it.');
+      return;
+    }
+    const parsed = new Date(date);
+    if (isNaN(parsed.getTime())) {
+      notify('Invalid date', 'Please use the format YYYY-MM-DD.');
+      return;
+    }
+    try {
+      const title = buildFoodTitle(foodStatus, items, recipeName);
+      const saved = await saveEvent({
+        id: existing?.id,
+        title,
+        description: written || undefined,
+        date: parsed.toISOString(),
+        category: 'other',
+        source: 'food',
+        foodStatus,
+        foodItems: items || undefined,
+        imageUri: imageUri || undefined,
+        mealKit: mealKit || undefined,
+        recipeName: recipeName.trim() || undefined,
+        cardNumber: cardNumber.trim() || undefined,
+        cookMinutes: cookMinutes.trim() || undefined,
+        mealTags: mealTags.trim() || undefined,
+        recipeUrl: recipeUrl.trim() || undefined,
+        nextAction: existing?.nextAction || 'none',
+        shareId: existing?.shareId,
+        isShared: existing?.isShared,
+        sharedFrom: existing?.sharedFrom,
+        sharedFromEmail: existing?.sharedFromEmail,
+      });
+      const id = existing?.id || (saved || []).find((row) => row.title === title && row.source === 'food')?.id;
+      if (!id) throw new Error('The meal was not saved.');
+      const mealId = await includeFoodOnList(id);
+      navigation.navigate('ShoppingList', { mealId });
+    } catch (e) {
+      notify('Could not add the meal', e?.message || 'Try again.');
+    }
+  };
+
   const handleDelete = async () => {
     if (!existing?.id || saving || deleting) return;
     const ok = await confirmAction(
@@ -218,7 +263,7 @@ export default function AddFoodScreen({ navigation, route }) {
         <TouchableOpacity onPress={() => navigation.navigate('MealSkyline')}>
           <Text style={styles.skylineLink}>Meal skyline · five meal-kit cards open the map</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.shopBtn} onPress={() => navigation.navigate('ShoppingList')}>
+        <TouchableOpacity style={styles.shopBtn} onPress={openShoppingList}>
           <Text style={styles.shopBtnText}>Shopping list — remake a meal</Text>
         </TouchableOpacity>
 
