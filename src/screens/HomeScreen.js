@@ -224,14 +224,6 @@ export default function HomeScreen({ navigation, user, onLogout }) {
           </TouchableOpacity>
         ) : null}
 
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }]}
-          onPress={() => navigation.navigate('ShoppingList')}
-        >
-          <Ionicons name="cart-outline" size={22} color={colors.blue} />
-          <Text style={[styles.addText, { color: colors.text }]}>Shopping list</Text>
-        </TouchableOpacity>
-
         <View style={styles.stats}>
           <View style={[styles.stat, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[styles.statNum, { color: colors.text }]}>{hobbyCount}</Text>
