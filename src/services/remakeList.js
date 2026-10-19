@@ -143,24 +143,31 @@ export function splitIngredientList(text) {
   if (!raw) return [];
   const labeled = raw.match(/(?:^|\n)\s*ingredients?\s*:\s*([\s\S]*)/i);
   if (labeled) raw = labeled[1].trim();
-  else if (looksLikeProse(raw)) return [];
 
+  const lines = raw
+    .split(/\n/)
+    .map((line) => line.replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '').trim())
+    .filter((line) => line && !/^(note|method|steps|instructions|description)\b/i.test(line));
+
+  // A new line is a new ingredient. Do not merge them, and do not treat the list as a note.
+  if (lines.length > 1) {
+    const seen = new Set();
+    return lines.filter((line) => {
+      const key = line.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  if (!labeled && looksLikeProse(raw)) return [];
+  const only = lines[0] || '';
+  const bits = only.split(/[,;]/).map((bit) => bit.replace(/[.]+$/, '').trim()).filter(Boolean);
   const parts = [];
-  const lines = raw.split(/\n/).map((line) => line.trim()).filter(Boolean);
-  for (const line of lines) {
-    if (/^(note|method|steps|instructions|description)\b/i.test(line)) break;
-    const cleaned = line.replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '').trim();
-    if (!cleaned) continue;
-    if (!labeled && looksLikeProse(cleaned) && !/[,;]/.test(cleaned)) {
-      if (parts.length) break;
-      return [];
-    }
-    const bits = cleaned.split(/[,;]/).map((bit) => bit.replace(/[.]+$/, '').trim()).filter(Boolean);
-    for (const bit of bits) {
-      if (!bit || bit.length > 60 || wordCount(bit) > 8) continue;
-      if (looksLikeProse(bit)) continue;
-      parts.push(bit);
-    }
+  for (const bit of bits) {
+    if (!bit || bit.length > 80 || wordCount(bit) > 12) continue;
+    if (looksLikeProse(bit)) continue;
+    parts.push(bit);
   }
   const seen = new Set();
   return parts.filter((part) => {
@@ -237,6 +244,8 @@ function emptyState() {
     swaps: {},
     got: {},
     dropped: {},
+    checked: {},
+    uberStore: { label: '', url: '' },
   };
 }
 
@@ -268,7 +277,9 @@ export function buildLines(recipes, state) {
         name: item.name,
         qty: item.qty,
         guidePence: state.prices && state.prices[id] != null ? state.prices[id] : item.guidePence,
+        entered: !!(state.prices && state.prices[id] != null),
         guessed: !(state.prices && state.prices[id] != null) && !!item.guessed,
+        checked: !!(state.checked && state.checked[id] && state.prices && state.prices[id] != null),
         swap: (state.swaps && state.swaps[id]) || '',
         got: !!(state.got && state.got[id]),
         dropped: !!(state.dropped && state.dropped[id]),
@@ -292,11 +303,42 @@ export function lineCost(line) {
   return line.guidePence || 0;
 }
 
-export function shopSearchUrl(shop, query) {
+export const UBER_STORES = [
+  { id: 'tesco', label: 'Tesco Express' },
+  { id: 'coop', label: 'Co-op' },
+  { id: 'sainsburys', label: "Sainsbury's" },
+  { id: 'asda', label: 'Asda' },
+];
+
+export function uberStoreUrl(raw) {
+  const match = String(raw || '').trim().match(/https?:\/\/(?:www\.)?ubereats\.com\/[^\s]+/i);
+  if (!match) return '';
+  try {
+    const url = new URL(match[0]);
+    if (!/\/store\//i.test(url.pathname)) return '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+export function uberFindStoreUrl(name) {
+  return `https://www.ubereats.com/gb/search?q=${encodeURIComponent(name)}`;
+}
+
+export function shopSearchUrl(shop, query, uberStore) {
   const q = encodeURIComponent(query);
   if (shop === 'tesco') return `https://www.tesco.com/groceries/en-GB/search?query=${q}`;
   if (shop === 'coop') return `https://shop.coop.co.uk/search?query=${q}`;
-  return `https://www.ubereats.com/gb/search?q=${q}`;
+  const store = uberStoreUrl(uberStore && uberStore.url ? uberStore.url : uberStore);
+  if (store) {
+    const url = new URL(store);
+    url.searchParams.set('diningMode', 'DELIVERY');
+    url.searchParams.set('searchTerm', query);
+    return url.toString();
+  }
+  return '';
 }
 
 export function listText(recipes, lines, shop, state) {
