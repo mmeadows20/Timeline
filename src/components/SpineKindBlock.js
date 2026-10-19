@@ -312,6 +312,59 @@ function sizeForCount(count, minCount, maxCount, base) {
   return Math.round(min + (max - min) * Math.max(0, Math.min(1, t)));
 }
 
+function radiusOf(bubble, sizeOf) {
+  const s = typeof sizeOf === 'function' ? sizeOf(bubble) : BUBBLE_SIZE;
+  return Math.max(21, Number(s) || BUBBLE_SIZE) / 2;
+}
+
+function separateBubbles(bubbles, sizeOf, spineY, half) {
+  const placed = bubbles.map((b) => ({ ...b }));
+  const pad = 10;
+  const settle = (rows, sign) => {
+    rows.sort((a, b) => a.x - b.x || String(a.key).localeCompare(String(b.key)));
+    rows.forEach((a, i) => {
+      let y = a.y;
+      for (let j = 0; j < i; j += 1) {
+        const b = rows[j];
+        const need = radiusOf(a.bubble, sizeOf) + radiusOf(b.bubble, sizeOf) + pad;
+        const dx = Math.abs(a.x - b.x);
+        if (dx >= need - 0.5) continue;
+        const minDy = Math.sqrt(Math.max(0, need * need - dx * dx));
+        const outward = spineY + sign * (Math.abs(b.y - spineY) + minDy);
+        y = sign < 0 ? Math.min(y, outward) : Math.max(y, outward);
+      }
+      a.y = y;
+    });
+  };
+  settle(placed.filter((b) => b.y <= spineY), -1);
+  settle(placed.filter((b) => b.y > spineY), 1);
+  if (half) {
+    placed.forEach((b) => {
+      const limit = Math.max(radiusOf(b.bubble, sizeOf) + 4, half - radiusOf(b.bubble, sizeOf) - 4);
+      if (b.x > limit) b.x = limit;
+      if (b.x < -limit) b.x = -limit;
+    });
+  }
+  return placed;
+}
+
+function finishOpened(bubbles, collapsed, sizeOf, extras) {
+  const reach = bubbles.reduce(
+    (m, b) => Math.max(m, Math.abs(b.y - collapsed.spineY) + radiusOf(b.bubble, sizeOf)),
+    96,
+  );
+  const height = Math.max(collapsed.height, (reach + 28) * 2);
+  const shift = height / 2 - collapsed.spineY;
+  return {
+    height,
+    spineY: height / 2,
+    labelTop: collapsed.labelTop + shift,
+    bubbles: bubbles.map((b) => ({ ...b, y: b.y + shift })),
+    shift,
+    ...extras,
+  };
+}
+
 function monthTickX(month, half) {
   const inner = LABEL_COL / 2 + 28;
   const edge = 22;
@@ -320,7 +373,7 @@ function monthTickX(month, half) {
   return inner + (span * (month - 6)) / 5;
 }
 
-function expandedLayout(monthBubbles, collapsed, width) {
+function expandedLayout(monthBubbles, collapsed, width, sizeOf) {
   const half = width / 2;
   const ticks = Array.from({ length: 12 }, (_, month) => ({ month, x: monthTickX(month, half) }));
   const groups = {};
@@ -338,31 +391,32 @@ function expandedLayout(monthBubbles, collapsed, width) {
   const bubbles = [];
   Object.keys(groups).forEach((key) => {
     const month = Number(key);
-    groups[month].forEach((b, slot) => {
-      const above = (month + slot) % 2 === 0;
-      const y = collapsed.spineY + (above ? -1 : 1) * (92 + Math.floor(slot / 2) * (BUBBLE_SIZE + 14));
-      const keep = biggest[b.kind] === b;
-      bubbles.push({
-        key: keep ? b.kind : `${b.kind}:${month}`,
-        bubble: b,
-        x: ticks[month].x,
-        y,
-        tickX: ticks[month].x,
-        split: !keep,
+    const above = [];
+    const below = [];
+    groups[month].forEach((b, slot) => (slot % 2 === 0 ? above : below).push(b));
+    const x = ticks[month].x;
+    const place = (rows, sign) => {
+      let cursor = 46;
+      rows.forEach((b) => {
+        const r = radiusOf(b, sizeOf);
+        cursor += r;
+        const keep = biggest[b.kind] === b;
+        bubbles.push({
+          key: keep ? b.kind : `${b.kind}:${month}`,
+          bubble: b,
+          x,
+          y: collapsed.spineY + sign * cursor,
+          tickX: x,
+          split: !keep,
+        });
+        cursor += r + 14;
       });
-    });
+    };
+    place(above, -1);
+    place(below, 1);
   });
-  const reach = bubbles.reduce((m, b) => Math.max(m, Math.abs(b.y - collapsed.spineY)), 0);
-  const height = Math.max(collapsed.height, (reach + BUBBLE_SIZE / 2 + 24) * 2);
-  const shift = height / 2 - collapsed.spineY;
-  return {
-    height,
-    spineY: height / 2,
-    labelTop: collapsed.labelTop + shift,
-    ticks,
-    bubbles: bubbles.map((b) => ({ ...b, y: b.y + shift })),
-    shift,
-  };
+  const placed = separateBubbles(bubbles, sizeOf, collapsed.spineY, half);
+  return { ...finishOpened(placed, collapsed, sizeOf), ticks };
 }
 
 function hourTickX(hour, half) {
@@ -612,7 +666,7 @@ export default function SpineKindBlock({
     ? hourExpandedLayout(hourBubbles, folded, width, nowHour)
     : dayBubbles
       ? dayExpandedLayout(dayBubbles, dayCount, folded, width)
-      : expandedLayout(axisSource, folded, width);
+      : expandedLayout(axisSource, folded, width, sizeOf);
   const toLayout = expanded ? opened : folded;
   const fromLayout = expanded ? folded : opened;
   const nodes = toLayout.bubbles.map((node) => ({
