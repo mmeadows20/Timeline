@@ -917,7 +917,7 @@ export function isPhotoEvent(event) {
   const image = String(event?.imageUri || event?.coverImageUri || '').trim();
   if (!image) return false;
   if (source === 'clip') return String(event?.clipKind || 'image').toLowerCase() !== 'video' && !event?.videoUri;
-  const generic = !source || source === 'manual' || source === 'share';
+  const generic = !source || source === 'manual' || source === 'share' || source === 'bot';
   const plain = !category || category === 'personal' || category === 'other' || category === 'event';
   return generic && plain;
 }

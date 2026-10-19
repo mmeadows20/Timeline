@@ -74,7 +74,7 @@ function isPhoto(e) {
   const cat = String(e.category || '').toLowerCase();
   if (src === 'photo' || src === 'image' || cat === 'photo') return true;
   if (src === 'clip' && String(e.clipKind || '').toLowerCase() === 'video') return false;
-  const generic = !src || src === 'manual' || src === 'share' || src === 'clip';
+  const generic = !src || src === 'manual' || src === 'share' || src === 'clip' || src === 'bot';
   const plain = !cat || cat === 'personal' || cat === 'other' || cat === 'event';
   return !!(e.imageUri || e.coverImageUri) && generic && plain && !isPoem(e) && !isTodoEvent(e);
 }

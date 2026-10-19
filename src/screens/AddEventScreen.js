@@ -66,9 +66,12 @@ export default function AddEventScreen({ navigation, route }) {
   const [showWashInMenu, setShowWashInMenu] = useState(true);
   const [eventCats, setEventCats] = useState(CATEGORIES);
 
-  const initialSource = existing?.source
-    || route.params?.source
-    || (fromHobby ? 'hobby' : fromEmail ? 'email' : 'manual');
+  const fromBot = existing?.addedBy === 'bot' || existing?.source === 'bot' || route.params?.source === 'bot';
+  const initialSource = fromBot && (!existing?.source || existing.source === 'manual' || existing.source === 'bot')
+    ? 'bot'
+    : (existing?.source
+      || route.params?.source
+      || (fromHobby ? 'hobby' : fromEmail ? 'email' : 'manual'));
 
   const paramDate = route.params?.date
     ? String(route.params.date).slice(0, 10)
@@ -262,6 +265,7 @@ export default function AddEventScreen({ navigation, route }) {
         date: parsed.toISOString(),
         category: category || (source === 'hobby' ? 'hobby' : 'personal'),
         source,
+        addedBy: source === 'bot' ? 'bot' : existing?.addedBy === 'bot' ? undefined : existing?.addedBy,
         nextAction,
         emailFrom: emailFrom.trim() || undefined,
         hobbyType: source === 'hobby' ? hobbyType : undefined,
@@ -503,6 +507,7 @@ export default function AddEventScreen({ navigation, route }) {
 
   const sourceChips = [
     { id: 'manual', label: 'Manual' },
+    { id: 'bot', label: 'Bot' },
     { id: 'email', label: 'From email' },
     { id: 'hobby', label: 'Hobby' },
   ];
