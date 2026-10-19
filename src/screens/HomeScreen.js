@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import ImageSourceSheet, { openImageSourcePicker } from '../components/ImageSourceSheet';
 import { MenuCard, MenuRow, MenuSection } from '../components/MenuGroup';
 import StampsRow from '../components/StampsRow';
+import AdBanner from '../components/AdBanner';
 import { useTheme } from '../themeContext';
 import { getProfilePhotoUri, saveProfilePhotoUri } from '../services/profileService';
 import { getEvents } from '../services/eventService';
@@ -386,6 +387,7 @@ export default function HomeScreen({ navigation, user, onLogout }) {
           />
         ) : null}
       </ScrollView>
+      <AdBanner />
     </View>
   );
 }

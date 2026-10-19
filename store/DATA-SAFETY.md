@@ -22,9 +22,9 @@ https://github.com/sarahvphillips/Timeline/blob/main/docs/DELETE-DATA.md
 | Account created in the app? | Yes |
 | Delete some or all data without deleting the account? (optional) | Yes. In the app they can delete single events, leave a shared event, remove a profile photo, clear this device’s local cache (Settings), and remove other signed-in devices. That does not close the login. To delete everything including the account: Settings → Delete account, or email sarah.v.phillips@googlemail.com. |
 | Delete account | In the app: Settings → Delete account. Or email sarah.v.phillips@googlemail.com with subject “Delete my TimelineApp account”. Full steps: https://github.com/sarahvphillips/Timeline/blob/main/docs/DELETE-ACCOUNT.md |
-| Ads | No |
+| Ads | Yes. One banner on Home, via Google AdMob. The testing build uses Google’s test ad units. |
 | Data sold | No |
-| Data shared with third parties for their own use | No. Google Firebase only processes it for Timeline. Another person sees an event only if the user shares that event or sends an invite. |
+| Data shared with third parties for their own use | AdMob may receive the advertising id to choose the banner. Timeline does not send events, poems, or notes to AdMob. Other data stays with Firebase unless the user shares an event. |
 
 "Collected" means it leaves the phone and is stored in Firebase. A photo that stays in the gallery is not collected.
 
@@ -47,7 +47,7 @@ For every row below: purpose **App functionality**. Not used for ads, marketing,
 | Audio | No. Recordings stay on the device. The microphone permission is off. | No | — |
 | Contacts (the phone address book) | No | No | — |
 | Calendar | No | No | — |
-| Other user-generated content | Yes. Events, poems, notes, word lists, date-circle entries, wash and food notes. | Only the items the user chooses to share | Optional, apart from needing an account |
+| Device or other IDs | Yes. The advertising id, collected by the AdMob banner. | Shared with Google for the advert | Optional. The phone settings can reset it. |
 | Device or other IDs | Yes. A device id and the platform (Android, web), so Settings can list signed-in devices. | No | Required while signed in |
 | Crash logs, web browsing, installed apps | No | No | — |
 

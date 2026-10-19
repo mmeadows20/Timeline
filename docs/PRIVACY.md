@@ -1,6 +1,6 @@
 # TimelineApp privacy policy
 
-Version 1.1 · Updated 24 September 2026
+Version 1.2 · Updated 19 October 2026
 
 Public page: https://github.com/sarahvphillips/Timeline/blob/main/docs/privacy.html
 
@@ -45,4 +45,8 @@ Balances in Firestore. Purchases are off while the app is in testing. Packs will
 
 Kept while the account exists. Settings → Delete account removes the Firebase login, that account’s Firestore timeline data, invites and shares you created, a public profile if you had one, and this device’s copy. Clear local cache does not delete the account. Steps and what is kept: https://github.com/sarahvphillips/Timeline/blob/main/docs/DELETE-ACCOUNT.md . Email the contact above, or the ICO (ico.org.uk).
 
-Not for children under 13. We do not sell data, run ads, or use your events to train public AI models.
+Not for children under 13. We do not sell your data, and we do not use your events to train public AI models.
+
+## Adverts
+
+The Android app shows a banner advert on Home, through Google AdMob. The testing build uses Google’s test adverts, which do not pay. Timeline does not send your events, poems, or notes to AdMob. Google may use the device advertising id to choose the advert. You can reset that id in the phone’s settings. A privacy message appears when AdMob requires one.

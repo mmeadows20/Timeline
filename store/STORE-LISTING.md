@@ -41,7 +41,7 @@ Nothing is public unless you turn that on for your own profile.
 Your account
 Sign in with email. Photos and recordings stay on your device in this version. You can delete the account in Settings. That removes the login and the timeline data stored for it.
 
-We do not show ads. We do not sell your data. We do not use your events to train public AI models.
+The Android app shows a banner advert on Home. We do not sell your data. We do not use your events to train public AI models.
 
 Timeline is not for children under 13.
 

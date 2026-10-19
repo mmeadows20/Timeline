@@ -2,8 +2,8 @@
 
 export const PRIVACY_META = {
   title: 'Privacy policy',
-  updated: '24 September 2026',
-  version: '1.1',
+  updated: '19 October 2026',
+  version: '1.2',
 };
 
 export const PRIVACY_URL = 'https://github.com/sarahvphillips/Timeline/blob/main/docs/privacy.html';
@@ -59,7 +59,7 @@ export const PRIVACY_SECTIONS = [
   },
   {
     heading: 'What we do not do',
-    body: 'We do not sell your data. We do not run ads in Timeline. We do not use your events to train public AI models.',
+    body: 'We do not sell your data. We do not use your events to train public AI models. The Android app shows a banner advert on Home through Google AdMob. Testing builds show Google’s test adverts, which do not pay. Your events are not sent to the advert. Google may use the device advertising id.',
   },
 ];
 
