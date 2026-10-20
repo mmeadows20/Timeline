@@ -321,20 +321,27 @@ export default function ShoppingListScreen({ navigation, route }) {
     }
   }
 
-  function openNext() {
-    const next = lines.find((line) => !line.got && !line.dropped);
-    const query = next ? displayName(next) : shopLabel;
+  function openShopFor(query) {
     if (shop === 'uber' && !uberStoreUrl(state.uberStore && state.uberStore.url)) {
       const message = 'Pick the Uber Eats store first, then paste its page link. Item search stays in that shop.';
       if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
       else Alert.alert('Choose a store', message);
       return;
     }
-    const url = shopSearchUrl(shop, query, state.uberStore);
+    const url = shopSearchUrl(shop, query || shopLabel, state.uberStore);
     if (!url) return;
     Linking.openURL(url).catch(() => {
-      Alert.alert('Could not open the shop', 'Copy the list and open the shop yourself.');
+      Alert.alert('Could not open the shop', 'Copy the item and open the shop yourself.');
     });
+  }
+
+  function openNext() {
+    const next = lines.find((line) => !line.got && !line.dropped);
+    openShopFor(next ? displayName(next) : shopLabel);
+  }
+
+  function openItem(line) {
+    openShopFor(displayName(line));
   }
 
   function saveUberStore() {
@@ -675,6 +682,8 @@ export default function ShoppingListScreen({ navigation, route }) {
                   onPriceDraft={(raw) => setPriceDrafts((prev) => ({ ...prev, [line.id]: raw }))}
                   copied={copiedId === line.id}
                   onCopy={() => copyItem(line)}
+                  shopLabel={shopLabel}
+                  onOpenShop={() => openItem(line)}
                 />
               ))}
             </View>
@@ -701,6 +710,9 @@ export default function ShoppingListScreen({ navigation, route }) {
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.chip} onPress={() => copyItem(groupLines[0])}>
                   <Text style={styles.chipText}>{copiedId === groupLines[0].id ? 'Copied' : 'Copy'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondary} onPress={() => openItem(groupLines[0])}>
+                  <Text style={styles.secondaryText}>Open this in {shopLabel}</Text>
                 </TouchableOpacity>
               </View>
             );
@@ -785,6 +797,8 @@ function LineCard({
   onPriceDraft,
   copied,
   onCopy,
+  shopLabel,
+  onOpenShop,
 }) {
   return (
     <View style={[styles.card, line.dropped && { opacity: 0.6 }]}>
@@ -829,6 +843,9 @@ function LineCard({
           <Text style={styles.chipText}>{line.dropped ? 'Put back' : 'Skip this meal'}</Text>
         </TouchableOpacity>
       </View>
+      <TouchableOpacity style={styles.secondary} onPress={onOpenShop}>
+        <Text style={styles.secondaryText}>Open this in {shopLabel}</Text>
+      </TouchableOpacity>
       {swapOpen ? (
         <View style={styles.rowBetween}>
           <TextInput
