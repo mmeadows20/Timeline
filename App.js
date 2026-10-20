@@ -3,6 +3,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { auth, onAuthStateChanged, signOut, dropUnrememberedSession } from './src/services/firebase';
 import { getMonthName } from './src/services/eventService';
@@ -769,9 +770,11 @@ function ThemedNavigator({ children, navKey, initialRouteName }) {
 export default function App() {
   return (
     <AppErrorBoundary>
-      <ThemeProvider>
-        <AppShell />
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AppShell />
+        </ThemeProvider>
+      </SafeAreaProvider>
     </AppErrorBoundary>
   );
 }

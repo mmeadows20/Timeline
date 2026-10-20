@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   getEvents,
@@ -77,6 +79,8 @@ function firstIsoInMonth(events, year, month, filter) {
 
 export default function MonthOverviewScreen({ navigation, route }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const sheetBottom = 20 + Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 0);
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const startYear = route.params?.year || new Date().getFullYear();
   const [events, setEvents] = useState([]);
@@ -365,7 +369,7 @@ export default function MonthOverviewScreen({ navigation, route }) {
 
       <Modal visible={!!preview} transparent animationType="slide" onRequestClose={() => setPreview(null)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setPreview(null)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation?.()}>
+          <Pressable style={[styles.sheet, { paddingBottom: sheetBottom }]} onPress={(e) => e.stopPropagation?.()}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>{previewTitle}</Text>

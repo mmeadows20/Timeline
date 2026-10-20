@@ -9,7 +9,9 @@ import {
   Image,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   getEvents,
@@ -39,6 +41,8 @@ function yearToLandOn(years) {
 
 export default function YearOverviewScreen({ navigation, route }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const sheetBottom = 20 + Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 0);
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const [years, setYears] = useState([]);
   const [events, setEvents] = useState([]);
@@ -340,7 +344,7 @@ export default function YearOverviewScreen({ navigation, route }) {
         onRequestClose={closePreview}
       >
         <Pressable style={styles.sheetBackdrop} onPress={closePreview}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation?.()}>
+          <Pressable style={[styles.sheet, { paddingBottom: sheetBottom }]} onPress={(e) => e.stopPropagation?.()}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>{previewTitle}</Text>

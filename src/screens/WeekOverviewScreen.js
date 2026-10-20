@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   getEvents,
@@ -83,6 +85,8 @@ const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function WeekOverviewScreen({ navigation, route }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const sheetBottom = 20 + Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 0);
   const styles = useMemo(() => screenStyles(colors), [colors]);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -348,7 +352,7 @@ export default function WeekOverviewScreen({ navigation, route }) {
 
       <Modal visible={!!preview} transparent animationType="slide" onRequestClose={() => setPreview(null)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setPreview(null)}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: sheetBottom }]}>
             <View style={styles.sheetHandle} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>{previewTitle}</Text>
