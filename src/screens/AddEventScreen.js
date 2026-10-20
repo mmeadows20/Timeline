@@ -79,6 +79,7 @@ export default function AddEventScreen({ navigation, route }) {
 
   const [title, setTitle] = useState(existing?.title || route.params?.title || '');
   const [description, setDescription] = useState(existing?.description || route.params?.description || '');
+  const [readingUrl, setReadingUrl] = useState(existing?.readingUrl || '');
   const [emailFrom, setEmailFrom] = useState(existing?.emailFrom || route.params?.emailFrom || '');
   const [date, setDate] = useState(
     existing?.date
@@ -262,6 +263,7 @@ export default function AddEventScreen({ navigation, route }) {
         id: existing?.id,
         title: title.trim(),
         description: description.trim(),
+        readingUrl: readingUrl.trim() || undefined,
         date: parsed.toISOString(),
         category: category || (source === 'hobby' ? 'hobby' : 'personal'),
         source,
@@ -944,6 +946,17 @@ export default function AddEventScreen({ navigation, route }) {
           multiline
           numberOfLines={source === 'hobby' && hobbyType === 'poetry' ? 8 : 4}
           textAlignVertical="top"
+        />
+        <Text style={styles.label}>Reading link</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Drive or web link to a spoken reading. Leave blank if there isn't one."
+          placeholderTextColor="#64748b"
+          value={readingUrl}
+          onChangeText={setReadingUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!coreReadOnly}
         />
 
         {isInvitee ? (

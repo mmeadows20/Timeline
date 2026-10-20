@@ -317,6 +317,19 @@ export default function EventViewScreen({ navigation, route }) {
         </View>
       ))}
 
+      {event.readingUrl ? (
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => Linking.openURL(event.readingUrl)}
+            accessibilityLabel="Play my reading"
+          >
+            <Ionicons name="play-outline" size={16} color="#7dd3fc" />
+            <Text style={styles.actionText}>Play my reading</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       {event.driveUrl ? (
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => Linking.openURL(event.driveUrl)}>

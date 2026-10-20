@@ -401,10 +401,12 @@ export async function acceptJoinInvite(code) {
   };
 }
 
-/** Owner: mark local people as on the app when their join code was accepted. */
+/** Owner: mark local people as on the app when their join code was accepted. Once per signed-in session. */
+let joinsSyncedUid = null;
 export async function syncAcceptedJoins() {
   const uid = currentUid();
   if (!uid) return await getPeople();
+  if (joinsSyncedUid === uid) return getPeople();
   let remote = [];
   try {
     const snap = await getDocs(query(collection(db, 'joinInvites'), where('fromUid', '==', uid)));
@@ -433,6 +435,7 @@ export async function syncAcceptedJoins() {
     changed = true;
   });
   if (changed) await writeList(list, uid);
+  joinsSyncedUid = uid;
   return sortPeople(list);
 }
 

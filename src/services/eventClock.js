@@ -46,3 +46,18 @@ export function preserveEventClock(nextDate, prevDate) {
   if (Number.isNaN(combined.getTime())) return nextDate;
   return combined.toISOString();
 }
+
+export function dateOnlyIso(day) {
+  const text = String(localDayKey(day) || day || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return day || '';
+  const local = new Date(`${text}T12:00:00`);
+  if (Number.isNaN(local.getTime())) return text;
+  return local.toISOString();
+}
+
+/** Keep a real clock. A date-only or midnight stamp is stored at local noon, so the day cannot slip. */
+export function settleEventDate(nextDate, prevDate) {
+  const kept = preserveEventClock(nextDate, prevDate);
+  if (hasRealClock(kept)) return kept;
+  return dateOnlyIso(kept || nextDate || prevDate);
+}

@@ -11,6 +11,7 @@ import { getProfilePhotoUri, saveProfilePhotoUri } from '../services/profileServ
 import { getEvents } from '../services/eventService';
 import { loadAdmin, isBlocked, canSeeHomeAddEvent, canSeeHomeAdmin } from '../services/adminService';
 import { syncAcceptedJoins } from '../services/peopleService';
+import { allowanceStatus, flushUsage } from '../services/usageService';
 import { getWordNumbers } from '../services/wordToIntService';
 import {
   evaluateStamps,
@@ -39,6 +40,7 @@ export default function HomeScreen({ navigation, user, onLogout }) {
   const initial = (user?.email || (guest ? 'G' : 'S')).charAt(0).toUpperCase();
   const [photoUri, setPhotoUri] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [allowanceNote, setAllowanceNote] = useState('');
   const [showAddEvent, setShowAddEvent] = useState(true);
   const [staff, setStaff] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -149,6 +151,24 @@ export default function HomeScreen({ navigation, user, onLogout }) {
     };
   }, [user?.uid]);
 
+  useEffect(() => {
+    let cancelled = false;
+    allowanceStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setAllowanceNote(
+          status.over
+            ? `You've used today's free allowance (${status.used} of ${status.allowance}). Events already on this phone still open. A full reload waits until tomorrow.`
+            : ''
+        );
+      })
+      .catch(() => {});
+    flushUsage().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
   const savePhoto = async (picked) => {
     if (!picked || !picked.uri) return;
     try {
@@ -214,6 +234,9 @@ export default function HomeScreen({ navigation, user, onLogout }) {
             </Text>
           </View>
         </View>
+        {allowanceNote ? (
+          <Text style={[styles.email, { color: colors.faint, marginBottom: 12 }]}>{allowanceNote}</Text>
+        ) : null}
 
         {showAddEvent ? (
           <TouchableOpacity

@@ -22,13 +22,13 @@ export function calendarParts(value) {
     return { y: value.getFullYear(), m: value.getMonth() + 1, d: value.getDate() };
   }
   const text = String(value || '').trim();
-  const match = text.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [y, m, d] = text.split('-').map(Number);
+    return { y, m, d };
   }
-  const d = new Date(text);
-  if (Number.isNaN(d.getTime())) return null;
-  return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return { y: parsed.getFullYear(), m: parsed.getMonth() + 1, d: parsed.getDate() };
 }
 
 export function formatDayMonth(value, format = DATE_FORMAT_DMY) {

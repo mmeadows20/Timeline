@@ -29,6 +29,7 @@ import {
 import { adminGetRewardsByEmail, adminSetRewards, perkLabel } from '../services/rewardsService';
 import { listCreditFeedback, creditFeedbackItems } from '../services/creditFeedback';
 import { useTheme } from '../themeContext';
+import { allowanceStatus, loadUsageRules, saveUsageRules } from '../services/usageService';
 
 export default function AdminScreen({ navigation, route }) {
   const { colors } = useTheme();
@@ -46,6 +47,8 @@ export default function AdminScreen({ navigation, route }) {
   const [creditStatus, setCreditStatus] = useState('');
   const [feedback, setFeedback] = useState([]);
   const [feedbackNote, setFeedbackNote] = useState('');
+  const [allowance, setAllowance] = useState('500');
+  const [usageNote, setUsageNote] = useState('');
 
   const notify = (title, message) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
@@ -186,6 +189,47 @@ export default function AdminScreen({ navigation, route }) {
       <Text style={styles.heading}>Admin</Text>
       <Text style={styles.intro}>Admins are chosen only by Sarah. Nobody can add themselves.</Text>
       <Text style={styles.meta}>{email} · {role}</Text>
+      <Text style={styles.heading}>Daily allowance</Text>
+      <Text style={styles.intro}>
+        Resets at midnight UK time. Rewarded ads stay off until the advert library no longer closes the Play build.
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={allowance}
+        onChangeText={setAllowance}
+        keyboardType="number-pad"
+        placeholder="500"
+        placeholderTextColor={colors.faint}
+      />
+      <TouchableOpacity
+        style={styles.primary}
+        onPress={async () => {
+          try {
+            const rules = await saveUsageRules({ dailyAllowance: Number(allowance) || 500 });
+            setAllowance(String(rules.dailyAllowance));
+            setUsageNote(`Saved. Daily allowance is ${rules.dailyAllowance} points.`);
+          } catch (e) {
+            setUsageNote(e?.message || 'Could not save the allowance. Publish the latest Firestore rules.');
+          }
+        }}
+      >
+        <Text style={styles.primaryText}>Save allowance</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.primary}
+        onPress={async () => {
+          try {
+            const [rules, status] = await Promise.all([loadUsageRules(), allowanceStatus()]);
+            setAllowance(String(rules.dailyAllowance || 500));
+            setUsageNote(`Today ${status.used} of ${status.allowance}. Reads ${status.reads}, writes ${status.writes}.`);
+          } catch (e) {
+            setUsageNote(e?.message || 'Could not read usage.');
+          }
+        }}
+      >
+        <Text style={styles.primaryText}>Check today's usage</Text>
+      </TouchableOpacity>
+      {usageNote ? <Text style={styles.meta}>{usageNote}</Text> : null}
       <TouchableOpacity style={styles.primary} onPress={() => navigation.navigate('CreditsShop')}>
         <Text style={styles.primaryText}>Credits shop — test as a user</Text>
       </TouchableOpacity>

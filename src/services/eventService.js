@@ -1,11 +1,12 @@
 import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, setDoc, getDocs, deleteDoc, collection } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { isGuestUid } from './guestSession';
 import { uploadEventImage, deleteEventPhotos } from './photoStorage';
 import { asImageUri, compressImageUri } from './imagePicker';
-import { preserveEventClock } from './eventClock';
+import { settleEventDate } from './eventClock';
+import { noteRead, noteWrite, noteDelete, heavySyncPaused, flushUsage } from './usageService';
 
 const LEGACY_EVENTS_KEY = '@timeline_events';
 const GUEST_EVENTS_KEY = '@timeline_events_guest';
@@ -311,6 +312,40 @@ function eventDoc(uid, eventId) {
   return doc(db, 'users', uid, 'events', eventId);
 }
 
+function syncDoc(uid) {
+  return doc(db, 'users', uid, 'meta', 'sync');
+}
+
+function syncKeys(uid) {
+  return {
+    ver: `@timeline_sync_ver_${uid}`,
+    at: `@timeline_sync_at_${uid}`,
+    full: `@timeline_full_at_${uid}`,
+  };
+}
+
+async function markSyncSeen(uid, version, full) {
+  const keys = syncKeys(uid);
+  const pairs = [
+    [keys.ver, String(version || Date.now())],
+    [keys.at, new Date().toISOString()],
+  ];
+  if (full) pairs.push([keys.full, String(Date.now())]);
+  await AsyncStorage.multiSet(pairs);
+}
+
+async function bumpSync(uid) {
+  if (!uid || isGuestUid(uid) || !EVENTS_FIRESTORE_SYNC_ENABLED) return;
+  const version = Date.now();
+  await setDoc(syncDoc(uid), { version, lastChanged: new Date().toISOString() }, { merge: true });
+  noteWrite(1);
+  await markSyncSeen(uid, version, false);
+}
+
+function withoutDeleted(events) {
+  return (events || []).filter((ev) => ev && !ev.deleted);
+}
+
 /** Strip undefined (Firestore rejects it) and convert Date to ISO strings. */
 function stripUndefined(value) {
   if (value === undefined) return undefined;
@@ -515,6 +550,7 @@ async function pushEventToCloud(event) {
   }
   // merge: true so stripping local-only imageUri/coverImageUri does not wipe cloud fields
   await setDoc(eventDoc(uid, event.id), eventPayloadForCloud(event, uid), { merge: true });
+  noteWrite(1);
 }
 
 /** Local cache only — does not touch Firestore. Uses per-uid (or guest) key. */
@@ -526,7 +562,7 @@ export async function readLocalEvents(uid = getUid()) {
     const events = JSON.parse(raw);
     const list = Array.isArray(events) ? events : [];
     const hydrated = await hydrateEventImages(list);
-    return sortEvents(hydrated);
+    return sortEvents(withoutDeleted(hydrated));
   } catch (e) {
     console.warn('Failed to load events', e);
     return [];
@@ -593,8 +629,66 @@ export async function syncEventsFromCloud(uid) {
   }
 
   try {
+    const localAll = await readLocalEvents(uid);
+    const localOwned = localAll.filter((ev) => eventBelongsToUid(ev, uid));
+    const keys = syncKeys(uid);
+    let remote = null;
+    try {
+      const syncSnap = await withTimeout(() => getDoc(syncDoc(uid)), 8000);
+      noteRead(1);
+      remote = syncSnap.exists() ? syncSnap.data() : null;
+    } catch (_) {
+      remote = null;
+    }
+    const savedVer = await AsyncStorage.getItem(keys.ver);
+    const since = await AsyncStorage.getItem(keys.at);
+    const fullAt = Number((await AsyncStorage.getItem(keys.full)) || 0);
+    const fullFresh = fullAt && Date.now() - fullAt < 7 * 24 * 60 * 60 * 1000;
+    if (heavySyncPaused() && localOwned.length) {
+      return sortEvents(localOwned);
+    }
+    if (remote && savedVer && String(remote.version) === String(savedVer) && fullFresh && localOwned.length) {
+      return sortEvents(localOwned);
+    }
+    if (remote && savedVer && since && fullFresh && localOwned.length && String(remote.version) !== String(savedVer)) {
+      const changed = await withTimeout(
+        () => getDocs(query(eventsCollection(uid), where('updatedAt', '>', since))),
+        12000,
+      );
+      if (!isScopeCurrent(uid, epoch)) return [];
+      noteRead(changed.size);
+      const byId = {};
+      localOwned.forEach((ev) => {
+        if (ev?.id) byId[ev.id] = ev;
+      });
+      changed.forEach((d) => {
+        const data = d.data() || {};
+        if (data.ownerUid && data.ownerUid !== uid) return;
+        if (data.deleted) {
+          delete byId[d.id];
+          return;
+        }
+        const prev = byId[d.id];
+        const ev = normalizeEvent({ ...data, ownerUid: data.ownerUid || uid }, d.id);
+        byId[d.id] = {
+          ...ev,
+          imageUri: ev.imageUri || prev?.imageUri || undefined,
+          coverImageUri: ev.coverImageUri || prev?.coverImageUri || undefined,
+          videoUri: ev.videoUri || prev?.videoUri || undefined,
+          audioUri: ev.audioUri || prev?.audioUri || undefined,
+          audioName: ev.audioName || prev?.audioName || undefined,
+        };
+      });
+      const mergedDelta = sortEvents(Object.values(byId));
+      await writeCache(mergedDelta, uid);
+      await markSyncSeen(uid, remote.version, false);
+      flushUsage().catch(() => {});
+      return mergedDelta;
+    }
+
     const snap = await withTimeout(() => getDocs(eventsCollection(uid)), 12000);
     if (!isScopeCurrent(uid, epoch)) return [];
+    noteRead(snap.size);
 
     const cloudEvents = [];
     const foreignIds = [];
@@ -606,6 +700,7 @@ export async function syncEventsFromCloud(uid) {
         foreignIds.push(d.id);
         return;
       }
+      if (data.deleted) return;
       cloudEvents.push(normalizeEvent({ ...data, ownerUid: data.ownerUid || uid }, d.id));
     });
 
@@ -623,8 +718,7 @@ export async function syncEventsFromCloud(uid) {
 
     if (!isScopeCurrent(uid, epoch)) return [];
 
-    const localAll = await readLocalEvents(uid);
-    const local = localAll.filter((ev) => eventBelongsToUid(ev, uid));
+    const local = localOwned;
 
     if (cloudEvents.length === 0) {
       if (local.length > 0) {
@@ -696,6 +790,12 @@ export async function syncEventsFromCloud(uid) {
       })
       .catch((e) => console.warn('Pending photo upload skipped', e));
     writeCache(merged, uid).catch((e) => console.warn('Could not store events on this device', e));
+    const version = remote && remote.version ? remote.version : Date.now();
+    if (!remote) {
+      setDoc(syncDoc(uid), { version, lastChanged: new Date().toISOString() }, { merge: true }).catch(() => {});
+    }
+    markSyncSeen(uid, version, true).catch(() => {});
+    flushUsage().catch(() => {});
     return merged;
   } catch (e) {
     warnCloud(
@@ -735,7 +835,7 @@ export async function saveEvent(event) {
       saved = {
         ...events[index],
         ...event,
-        date: preserveEventClock(event.date, events[index].date),
+        date: settleEventDate(event.date, events[index].date),
         updatedAt: now,
         ownerUid: uid || events[index].ownerUid || undefined,
       };
@@ -744,6 +844,7 @@ export async function saveEvent(event) {
       // Allow save of a known id that is not yet in this user's cache
       saved = {
         ...event,
+        date: settleEventDate(event.date, event.date),
         updatedAt: now,
         createdAt: event.createdAt || now,
         ownerUid: uid,
@@ -756,6 +857,7 @@ export async function saveEvent(event) {
       id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
       source: event.source || 'manual',
       nextAction: event.nextAction || 'none',
+      date: settleEventDate(event.date, null),
       createdAt: now,
       updatedAt: now,
       ownerUid: uid || undefined,
@@ -781,6 +883,7 @@ export async function saveEvent(event) {
   if (saved && uid) {
     try {
       await pushEventToCloud(saved);
+      await bumpSync(uid);
     } catch (e) {
       warnCloud(
         'Could not sync this event to the cloud. It is saved on this device.',
@@ -810,7 +913,18 @@ export async function deleteEvent(id) {
 
   if (uid && EVENTS_FIRESTORE_SYNC_ENABLED) {
     try {
-      await deleteDoc(eventDoc(uid, id));
+      const gone = removed[0];
+      if (gone) {
+        const tombstone = {
+          ...gone,
+          deleted: true,
+          updatedAt: new Date().toISOString(),
+          ownerUid: uid,
+        };
+        await setDoc(eventDoc(uid, id), eventPayloadForCloud(tombstone, uid), { merge: true });
+        noteDelete(1);
+        await bumpSync(uid);
+      }
     } catch (e) {
       warnCloud(
         'Could not delete this event from the cloud. It is removed on this device.',

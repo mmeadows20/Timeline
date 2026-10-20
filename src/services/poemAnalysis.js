@@ -1,4 +1,5 @@
 import { convertPhrase, findSavedPhrase, preferredNumber } from './wordToIntService';
+import { localDayKey } from './eventClock';
 
 const STOP = new Set(
   `a an the and or but if to of in on for with from at by as is it its this that these those was were be been being are i me my we our you your he she they them his her their not no nor so yet than then when while who what which whom whose into over after before about across after again against all also am among because been both can could did do does doing down during each few further had has have having here how into just more most other out own same should some such too under until up very was were what when where whether which while who why will would`.split(
@@ -71,7 +72,7 @@ export function analysePoem(event) {
   const chars = body.replace(/\s/g, '').length;
   const tokens = tokenize(`${title}\n${body}`);
   const titleNums = convertPhrase(title);
-  const day = String(event?.date || '').slice(0, 10);
+  const day = localDayKey(event?.date);
   return {
     id: event.id,
     event,
