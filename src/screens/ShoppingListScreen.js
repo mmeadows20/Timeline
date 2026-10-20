@@ -54,6 +54,7 @@ export default function ShoppingListScreen({ navigation, route }) {
   const [priceDrafts, setPriceDrafts] = useState({});
   const [swapFor, setSwapFor] = useState(null);
   const [swapDraft, setSwapDraft] = useState('');
+  const [copiedId, setCopiedId] = useState('');
   const [group, setGroup] = useState('meal');
   const [sharing, setSharing] = useState(false);
   const focusMealId = route?.params?.mealId || '';
@@ -252,6 +253,19 @@ export default function ShoppingListScreen({ navigation, route }) {
     } finally {
       setReadingLink(false);
     }
+  }
+
+  async function copyItem(line) {
+    const text = displayName(line);
+    const ok = await copyTextToClipboard(text);
+    if (!ok) {
+      const message = 'Could not copy from this device.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+      else Alert.alert('Copy', message);
+      return;
+    }
+    setCopiedId(line.id);
+    setTimeout(() => setCopiedId((current) => (current === line.id ? '' : current)), 1500);
   }
 
   async function copyList() {
@@ -659,6 +673,8 @@ export default function ShoppingListScreen({ navigation, route }) {
                   onPrice={(raw) => setPrice(line, raw)}
                   priceText={priceDrafts[line.id] != null ? priceDrafts[line.id] : (line.guidePence / 100).toFixed(2)}
                   onPriceDraft={(raw) => setPriceDrafts((prev) => ({ ...prev, [line.id]: raw }))}
+                  copied={copiedId === line.id}
+                  onCopy={() => copyItem(line)}
                 />
               ))}
             </View>
@@ -682,6 +698,9 @@ export default function ShoppingListScreen({ navigation, route }) {
                     <Text style={styles.meta}>{groupLines.map((line) => line.mealName).join(' · ')}</Text>
                     <Text style={styles.meta}>{inBasket ? 'In the basket' : 'Not in the basket yet'} · {formatPence(groupLines.reduce((sum, line) => sum + lineCost(line), 0))}</Text>
                   </View>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.chip} onPress={() => copyItem(groupLines[0])}>
+                  <Text style={styles.chipText}>{copiedId === groupLines[0].id ? 'Copied' : 'Copy'}</Text>
                 </TouchableOpacity>
               </View>
             );
@@ -764,6 +783,8 @@ function LineCard({
   onPrice,
   priceText,
   onPriceDraft,
+  copied,
+  onCopy,
 }) {
   return (
     <View style={[styles.card, line.dropped && { opacity: 0.6 }]}>
@@ -798,6 +819,9 @@ function LineCard({
         placeholderTextColor={colors.faint}
       />
       <View style={styles.row}>
+        <TouchableOpacity style={styles.chip} onPress={onCopy}>
+          <Text style={styles.chipText}>{copied ? 'Copied' : 'Copy'}</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.chip} onPress={onOpenSwap}>
           <Text style={styles.chipText}>Swap</Text>
         </TouchableOpacity>
