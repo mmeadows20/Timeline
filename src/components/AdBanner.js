@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Platform, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { bannerUnitId } from '../services/adUnits';
 
@@ -18,6 +19,8 @@ function loadAds() {
 
 /** Banner on Home. Expo Go and the browser show a label. The Android build shows a test advert. */
 export default function AdBanner() {
+  const insets = useSafeAreaInsets();
+  const bottomPad = 8 + Math.max(insets.bottom, Platform.OS === 'android' ? 48 : 0);
   const ads = loadAds();
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(!ads);
@@ -50,7 +53,7 @@ export default function AdBanner() {
   if (!ads || failed || !ready) {
     if (Platform.OS === 'web' || inExpoGo() || !ads) {
       return (
-        <View style={styles.slot}>
+        <View style={[styles.slot, { paddingBottom: bottomPad }]}>
           <Text style={styles.label}>Advert · shows in the Android test build</Text>
         </View>
       );
@@ -60,7 +63,7 @@ export default function AdBanner() {
 
   const { BannerAd, BannerAdSize } = ads;
   return (
-    <View style={styles.slot}>
+    <View style={[styles.slot, { paddingBottom: bottomPad }]}>
       <BannerAd
         unitId={bannerUnitId(ads.TestIds)}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
