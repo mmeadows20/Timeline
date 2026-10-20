@@ -1,38 +1,28 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-
-function loadPlayer() {
-  try {
-    const av = require('expo-av');
-    if (!av || !av.Video) return null;
-    return av;
-  } catch (_) {
-    return null;
-  }
-}
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 export default function ClipVideo({ uri, style }) {
   const [failed, setFailed] = useState(false);
-  const av = loadPlayer();
+  const player = useVideoPlayer(uri || null, (item) => {
+    item.loop = false;
+  });
   if (!uri) return null;
-  if (!av || failed) {
+  if (failed) {
     return (
       <Text style={styles.fail}>
-        This video is saved on this device. This copy of Expo Go cannot play it yet.
+        This video is saved on this device. Open it from Gallery if it will not play here.
       </Text>
     );
   }
-  const { Video, ResizeMode } = av;
   return (
     <View style={styles.wrap}>
-      <Video
-        source={{ uri }}
+      <VideoView
+        player={player}
         style={[styles.player, style]}
-        useNativeControls
-        resizeMode={ResizeMode.CONTAIN}
-        shouldPlay={false}
-        isLooping={false}
-        onError={() => setFailed(true)}
+        nativeControls
+        contentFit="contain"
+        onFirstFrameRender={() => setFailed(false)}
       />
       <Text style={styles.hint}>First frame shows here. Use the play control to watch it.</Text>
     </View>

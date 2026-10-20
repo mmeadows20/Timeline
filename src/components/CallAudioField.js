@@ -2,14 +2,13 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-
-function audioApi() {
-  try {
-    return require('expo-av').Audio;
-  } catch {
-    return null;
-  }
-}
+import {
+  useAudioPlayer,
+  useAudioRecorder,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
 
 function kindFromName(name = '', mime = '') {
   const blob = `${name} ${mime}`.toLowerCase();
@@ -37,8 +36,10 @@ export default function CallAudioField({
   recordLabel = 'Record note',
 }) {
   const allowed = !gated || unlocked;
-  const [recording, setRecording] = useState(null);
+  const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const player = useAudioPlayer(null);
 
   const notify = (title, message) => {
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
@@ -121,37 +122,26 @@ export default function CallAudioField({
       notify('Credits perk', `Call recordings cost ${cost} credits. Unlock in the shop.`);
       return;
     }
-    const Audio = audioApi();
-    if (!Audio) {
-      notify(
-        'In-app record',
-        'Needs expo-av on this install. You can still attach Voice Recorder, call recorder, or a screen recording.'
-      );
-      return;
-    }
     try {
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
         notify('Microphone', 'Allow the mic to record a voice note about the call.');
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await rec.startAsync();
-      setRecording(rec);
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
     } catch (e) {
       notify('Record', e?.message || 'Could not start recording.');
     }
   };
 
   const stopMemo = async () => {
-    const rec = recording;
-    setRecording(null);
-    if (!rec) return;
+    setRecording(false);
     try {
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
+      await recorder.stop();
+      const uri = recorder.uri;
       if (uri) onChange({ uri, name: gated ? 'voice-note.m4a' : 'singing-take.m4a', kind: 'audio' });
     } catch (e) {
       notify('Record', e?.message || 'Could not save the voice note.');
@@ -159,8 +149,7 @@ export default function CallAudioField({
   };
 
   const play = async () => {
-    const Audio = audioApi();
-    if (!Audio || !audioUri || audioKind === 'video') {
+    if (!audioUri || audioKind === 'video') {
       notify(
         'Playback',
         'Saved on this device. Open it in Gallery / Files if in-app play is unavailable for this type.'
@@ -168,8 +157,8 @@ export default function CallAudioField({
       return;
     }
     try {
-      const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
-      await sound.playAsync();
+      player.replace({ uri: audioUri });
+      player.play();
     } catch (e) {
       notify('Playback', e?.message || 'Could not play this file.');
     }
