@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -26,12 +26,55 @@ import {
 } from '../services/rewardsService';
 import { formatFullDate } from '../services/dateFormat';
 
+const POEM_SORTS = [
+  { id: 'newest', label: 'Newest' },
+  { id: 'oldest', label: 'Oldest' },
+  { id: 'az', label: 'A–Z' },
+  { id: 'za', label: 'Z–A' },
+  { id: 'words', label: 'Most words' },
+  { id: 'words-asc', label: 'Fewest words' },
+  { id: 'lines', label: 'Most lines' },
+  { id: 'lines-asc', label: 'Fewest lines' },
+  { id: 'letters', label: 'Most letters' },
+  { id: 'ordinal', label: 'Title number' },
+  { id: 'album', label: 'Album' },
+];
+
+function sortPoems(poems, mode) {
+  const list = [...(poems || [])];
+  const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' });
+  const byNumber = (pick, highFirst) => (a, b) => {
+    const diff = (Number(pick(a)) || 0) - (Number(pick(b)) || 0);
+    if (diff) return highFirst ? -diff : diff;
+    return byTitle(a, b);
+  };
+  if (mode === 'oldest') list.sort((a, b) => String(a.date).localeCompare(String(b.date)) || byTitle(a, b));
+  else if (mode === 'az') list.sort(byTitle);
+  else if (mode === 'za') list.sort((a, b) => byTitle(b, a));
+  else if (mode === 'words') list.sort(byNumber((p) => p.wordCount, true));
+  else if (mode === 'words-asc') list.sort(byNumber((p) => p.wordCount, false));
+  else if (mode === 'lines') list.sort(byNumber((p) => p.lineCount, true));
+  else if (mode === 'lines-asc') list.sort(byNumber((p) => p.lineCount, false));
+  else if (mode === 'letters') list.sort(byNumber((p) => p.charCount, true));
+  else if (mode === 'ordinal') list.sort(byNumber((p) => p.titleOrdinal, true));
+  else if (mode === 'album') {
+    list.sort((a, b) => {
+      const left = a.collection || '\uffff';
+      const right = b.collection || '\uffff';
+      return left.localeCompare(right, undefined, { sensitivity: 'base' }) || byTitle(a, b);
+    });
+  } else list.sort((a, b) => String(b.date).localeCompare(String(a.date)) || byTitle(a, b));
+  return list;
+}
+
 export default function PoemInsightsScreen({ navigation }) {
   const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState(null);
   const [unlocked, setUnlocked] = useState(CREDITS_PAUSED);
   const [busy, setBusy] = useState(false);
+  const [poemSort, setPoemSort] = useState('newest');
+  const sortedPoems = useMemo(() => sortPoems(report?.poems, poemSort), [report, poemSort]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,7 +252,21 @@ export default function PoemInsightsScreen({ navigation }) {
             ) : null}
 
             <Text style={[styles.h, { color: colors.text }]}>Each poem</Text>
-            {report.poems.map((p) => (
+            <View style={styles.sortRow}>
+              {POEM_SORTS.map((choice) => {
+                const on = poemSort === choice.id;
+                return (
+                  <TouchableOpacity
+                    key={choice.id}
+                    style={[styles.sortChip, { borderColor: colors.cardBorder }, on && { backgroundColor: colors.blue, borderColor: colors.blue }]}
+                    onPress={() => setPoemSort(choice.id)}
+                  >
+                    <Text style={[styles.sortChipText, { color: on ? '#fff' : colors.faint }]}>{choice.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {sortedPoems.map((p) => (
               <TouchableOpacity
                 key={p.id}
                 style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
@@ -219,6 +276,7 @@ export default function PoemInsightsScreen({ navigation }) {
                 <Text style={[styles.cardMeta, { color: colors.faint }]}>
                   {formatFullDate(p.date)} · {p.wordCount} words · {p.lineCount} lines · {p.charCount} letters
                   {p.avgLineWords ? ` · ${p.avgLineWords} words/line` : ''}
+                  {p.collection ? ` · ${p.collection}` : ''}
                 </Text>
                 <Text style={[styles.cardMeta, { color: colors.blueSoft }]}>
                   Title Ord {p.titleOrdinal} · Pyth {p.titlePyth} · Rev {p.titleReverse} · Red {p.titleReduced}
@@ -253,6 +311,16 @@ const styles = StyleSheet.create({
   body: { fontSize: 14, lineHeight: 20, marginBottom: 8 },
   note: { borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10, fontSize: 13, lineHeight: 18 },
   h: { fontSize: 17, fontWeight: '700', marginTop: 16, marginBottom: 6 },
+  sortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  sortChip: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortChipText: { fontSize: 13, fontWeight: '700' },
   stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8 },
   stat: { width: '30%', minWidth: 96, borderWidth: 1, borderRadius: 12, padding: 10 },
   statNum: { fontSize: 20, fontWeight: '800' },
