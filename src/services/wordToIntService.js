@@ -26,6 +26,7 @@ export function beginAuthScope(uid) {
   activeAuthUid = uid || null;
   sessionWords = null;
   sessionWordsUid = undefined;
+  dedupeCloudDone.clear();
   return authEpoch;
 }
 
@@ -338,12 +339,16 @@ export function dedupeWordNumbers(list) {
   return { kept: Array.from(byKey.values()), dropped, patched };
 }
 
+const dedupeCloudDone = new Set();
+
 async function applyDedupe(list, uid, epoch) {
   const { kept, dropped, patched } = dedupeWordNumbers(list);
   if (dropped.length === 0 && patched.length === 0) return kept;
   if (uid && epoch != null && !isScopeCurrent(uid, epoch)) return kept;
   await writeList(kept, uid);
-  if (uid && WORD_NUMBERS_FIRESTORE_SYNC_ENABLED) {
+  if (!uid || !WORD_NUMBERS_FIRESTORE_SYNC_ENABLED) return kept;
+  if (dedupeCloudDone.has(uid)) return kept;
+  dedupeCloudDone.add(uid);
     await Promise.all(
       dropped.map(async (item) => {
         if (!item?.id) return;
@@ -363,7 +368,6 @@ async function applyDedupe(list, uid, epoch) {
         }
       })
     );
-  }
   return kept;
 }
 
@@ -466,15 +470,20 @@ async function loadWordNumbersFresh() {
     // Never stamp missing ownerUid onto foreign/unscoped entries just to upload.
     if (remote.length === 0) {
       if (local.length > 0) {
-        await Promise.all(
-          local.map(async (item) => {
-            try {
-              await pushWordNumberToFirebase({ ...item, ownerUid: uid });
-            } catch (e) {
-              console.warn('Failed to upload local word-number', e);
-            }
-          }),
-        );
+        const seedKey = `@timeline_words_seeded_${uid}`;
+        const alreadySeeded = await AsyncStorage.getItem(seedKey);
+        if (!alreadySeeded) {
+          await Promise.all(
+            local.map(async (item) => {
+              try {
+                await pushWordNumberToFirebase({ ...item, ownerUid: uid });
+              } catch (e) {
+                console.warn('Failed to upload local word-number', e);
+              }
+            }),
+          );
+          await AsyncStorage.setItem(seedKey, new Date().toISOString());
+        }
         if (!isScopeCurrent(uid, epoch)) return sortWordNumbers(local);
         await writeList(local, uid);
         const cleaned = await applyDedupe(local, uid, epoch);

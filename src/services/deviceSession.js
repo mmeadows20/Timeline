@@ -5,6 +5,11 @@ import { db } from './firebase';
 
 const DEVICE_ID_KEY = '@timeline_device_id';
 const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+const REGISTER_GAP_MS = 24 * 60 * 60 * 1000;
+
+function deviceSeenKey(uid) {
+  return `@timeline_device_seen_${uid}`;
+}
 
 function stripUndefined(value) {
   if (value === undefined) return undefined;
@@ -85,6 +90,11 @@ export async function registerThisDevice(uid) {
   if (!uid) return null;
   try {
     const deviceId = await getOrCreateDeviceId();
+    try {
+      const last = await AsyncStorage.getItem(deviceSeenKey(uid));
+      const at = Number(last);
+      if (Number.isFinite(at) && Date.now() - at < REGISTER_GAP_MS) return deviceId;
+    } catch (_) {}
     const now = new Date().toISOString();
     const ref = sessionDoc(uid, deviceId);
     const payload = {
@@ -107,6 +117,9 @@ export async function registerThisDevice(uid) {
       payload.createdAt = now;
     }
     await setDoc(ref, stripUndefined(payload), { merge: true });
+    try {
+      await AsyncStorage.setItem(deviceSeenKey(uid), String(Date.now()));
+    } catch (_) {}
     return deviceId;
   } catch (e) {
     console.warn('Could not register this device session', e);

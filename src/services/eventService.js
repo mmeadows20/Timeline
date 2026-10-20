@@ -628,15 +628,20 @@ export async function syncEventsFromCloud(uid) {
 
     if (cloudEvents.length === 0) {
       if (local.length > 0) {
-        await Promise.all(
-          local.map(async (ev) => {
-            try {
-              await setDoc(eventDoc(uid, ev.id), eventPayloadForCloud(ev, uid), { merge: true });
-            } catch (e) {
-              console.warn('Failed to upload local event to Firestore', e);
-            }
-          }),
-        );
+        const seedKey = `@timeline_events_seeded_${uid}`;
+        const alreadySeeded = await AsyncStorage.getItem(seedKey);
+        if (!alreadySeeded) {
+          await Promise.all(
+            local.map(async (ev) => {
+              try {
+                await setDoc(eventDoc(uid, ev.id), eventPayloadForCloud(ev, uid), { merge: true });
+              } catch (e) {
+                console.warn('Failed to upload local event to Firestore', e);
+              }
+            }),
+          );
+          await AsyncStorage.setItem(seedKey, new Date().toISOString());
+        }
         if (!isScopeCurrent(uid, epoch)) return local;
         await writeCache(local, uid);
         return local;

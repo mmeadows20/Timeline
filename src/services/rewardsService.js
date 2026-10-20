@@ -509,6 +509,10 @@ export async function applyJoinRewards(people) {
     newlyClaimed.push(m);
   });
 
+  if (newlyClaimed.length === 0) {
+    return { rewards: current, newlyClaimed, stats };
+  }
+
   const next = await writeRewards({
     ...current,
     credits,
